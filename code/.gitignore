@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.idea/
+
+backend/.venv/
+backend/.pytest_cache/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
+.playwright-cli/
+output/playwright/

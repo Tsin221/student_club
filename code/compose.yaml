@@ -1,0 +1,23 @@
+services:
+  mysql:
+    image: mysql:8
+    pull_policy: never
+    container_name: student-club-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - student-club-mysql-data:/var/lib/mysql
+
+volumes:
+  student-club-mysql-data:
+    name: student-club-mysql-data
