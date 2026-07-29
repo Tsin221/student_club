@@ -69,6 +69,7 @@ DATABASES = {
 
 #用户与密码配置
 AUTH_USER_MODEL = "users.User"
+AUTHENTICATION_BACKENDS = ["users.backends.SessionUserBackend"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {

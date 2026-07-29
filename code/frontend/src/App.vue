@@ -1,34 +1,59 @@
 <script setup lang="ts">
-const checks = [
-  'Vue 3 与 TypeScript 已配置',
-  'Element Plus 已加载',
-  '开发代理已指向 Django',
-]
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+
+import LoginView from './views/LoginView.vue'
+import RegisterView from './views/RegisterView.vue'
+import StudentView from './views/StudentView.vue'
+
+
+const currentPath = ref(window.location.pathname)
+const routeRevision = ref(0)
+
+const currentView = computed(() => {
+  switch (currentPath.value) {
+    case '/register':
+      return RegisterView
+    case '/student':
+      return StudentView
+    case '/login':
+    default:
+      return LoginView
+  }
+})
+
+
+function navigate(target: string) {
+  const url = new URL(target, window.location.origin)
+  window.history.pushState({}, '', `${url.pathname}${url.search}`)
+  currentPath.value = url.pathname
+  routeRevision.value += 1
+  window.scrollTo({ top: 0 })
+}
+
+
+function syncRoute() {
+  currentPath.value = window.location.pathname
+  routeRevision.value += 1
+}
+
+
+onMounted(() => {
+  window.addEventListener('popstate', syncRoute)
+  if (!['/login', '/register', '/student'].includes(currentPath.value)) {
+    navigate('/login')
+  }
+})
+
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', syncRoute)
+})
 </script>
 
 <template>
-  <main class="app-shell">
-    <el-card class="status-card" shadow="never">
-      <template #header>
-        <div class="status-card__header">
-          <div>
-            <p class="eyebrow">S00 · 工程骨架</p>
-            <h1>校园社团智能管理系统</h1>
-          </div>
-          <el-tag type="success" effect="light">前端已就绪</el-tag>
-        </div>
-      </template>
-
-      <p class="summary">
-        当前仅验证基础工程、组件库和开发配置，不包含登录、注册或业务页面。
-      </p>
-
-      <el-space direction="vertical" alignment="start" :size="14">
-        <div v-for="check in checks" :key="check" class="check-item">
-          <span class="check-mark" aria-hidden="true">✓</span>
-          <span>{{ check }}</span>
-        </div>
-      </el-space>
-    </el-card>
-  </main>
+  <component
+    :is="currentView"
+    :key="routeRevision"
+    @navigate="navigate"
+  />
 </template>
