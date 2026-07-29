@@ -3,12 +3,16 @@ name = "student-club-backend"
 version = "0.1.0"
 description = "Django backend for the AI campus student club management system"
 requires-python = ">=3.12,<3.13"
+
+# 生产环境依赖
 dependencies = [
     "Django==5.2.16",
     "mysqlclient==2.2.8",
     "python-dotenv==1.2.2",
 ]
 
+
+# 开发环境依赖
 [dependency-groups]
 dev = [
     "pip-audit==2.10.1",
@@ -16,11 +20,14 @@ dev = [
     "pytest-django==4.12.0",
 ]
 
+
+# pytest 测试配置
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
 addopts = "-ra"
 
+# uv 包管理器配置
 [tool.uv]
 package = false

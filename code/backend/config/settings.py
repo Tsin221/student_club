@@ -3,13 +3,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
+#基础路径与环境变量
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BASE_DIR.parent
 
 load_dotenv(PROJECT_DIR / ".env")
 
-
+#将逗号分隔的环境变量转换为列表。
 def env_list(name):
     return [
         value.strip()
@@ -17,11 +17,12 @@ def env_list(name):
         if value.strip()
     ]
 
-
+#Django 基础配置
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
 
+#应用配置
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -30,6 +31,7 @@ INSTALLED_APPS = [
     "users",
 ]
 
+#中间件配置
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -39,6 +41,8 @@ MIDDLEWARE = [
     "core.middleware.ApiExceptionMiddleware",
 ]
 
+
+#路由与服务入口
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = []
@@ -46,6 +50,7 @@ TEMPLATES = []
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+#数据库配置
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
@@ -61,6 +66,8 @@ DATABASES = {
     }
 }
 
+
+#用户与密码配置
 AUTH_USER_MODEL = "users.User"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -90,19 +97,23 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+#语言与时区配置
 LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
 USE_TZ = True
 
+#Session 配置
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
 
+#CSRF 配置
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 CSRF_FAILURE_VIEW = "core.views.csrf_failure"
 
+#模型默认配置
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

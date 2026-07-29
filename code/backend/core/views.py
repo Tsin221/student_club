@@ -1,5 +1,5 @@
 from .responses import error_response
-
+#CSRF证明请求来自可信页面
 
 def csrf_failure(request, reason=""):
     return error_response(
