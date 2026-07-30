@@ -4,6 +4,7 @@ import {
   ApiRequestError,
   getProfile,
   registerStudent,
+  updateProfile,
 } from './auth'
 
 
@@ -130,6 +131,89 @@ describe('getProfile', () => {
 
     await expect(getProfile()).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
+    })
+  })
+})
+
+
+describe('updateProfile', () => {
+  it('initializes CSRF and submits a PATCH with allowed fields', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        apiResponse({
+          code: 'SUCCESS',
+          message: 'CSRF 令牌初始化成功',
+          data: { csrf_token: 'csrf-token-patch' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        apiResponse({
+          code: 'SUCCESS',
+          message: '资料修改成功',
+          data: { ...student, name: '新姓名', phone: '13700000001' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateProfile({
+      name: '新姓名',
+      phone: '13700000001',
+    })
+
+    expect(result.name).toBe('新姓名')
+    expect(result.phone).toBe('13700000001')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/auth/csrf',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        method: 'GET',
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/me/profile',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        method: 'PATCH',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'X-CSRFToken': 'csrf-token-patch',
+        }),
+      }),
+    )
+  })
+
+  it('rejects an error response with the stable error code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          apiResponse({
+            code: 'SUCCESS',
+            message: 'CSRF 令牌初始化成功',
+            data: { csrf_token: 'csrf-token-patch' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          apiResponse(
+            {
+              code: 'INVALID_REQUEST',
+              message: '请求包含不允许修改的字段',
+              data: null,
+            },
+            { status: 400 },
+          ),
+        ),
+    )
+
+    await expect(
+      updateProfile({ username: 'hacked' } as unknown as Record<string, string>),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
     })
   })
 })

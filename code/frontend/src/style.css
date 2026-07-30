@@ -238,6 +238,15 @@ a:hover {
   gap: 20px;
 }
 
+.profile-summary-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-actions {
+  flex: none;
+}
+
 .profile-avatar {
   display: grid;
   width: 72px;

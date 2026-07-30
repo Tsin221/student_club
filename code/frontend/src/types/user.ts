@@ -25,3 +25,11 @@ export interface LoginInput {
   username: string
   password: string
 }
+
+
+export interface ProfileUpdateInput {
+  name?: string
+  phone?: string
+  major_class?: string
+  grade?: string
+}

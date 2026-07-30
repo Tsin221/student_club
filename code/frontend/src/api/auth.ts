@@ -1,5 +1,6 @@
 import type {
   LoginInput,
+  ProfileUpdateInput,
   RegistrationInput,
   SelfUser,
 } from '../types/user'
@@ -139,6 +140,22 @@ async function postWithCsrf<T>(
 }
 
 
+async function patchWithCsrf<T>(
+  url: string,
+  body: Record<string, string>,
+): Promise<T> {
+  const csrfToken = await getCsrfToken()
+  return request<T>(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrfToken,
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+
 export async function registerStudent(
   input: RegistrationInput,
 ): Promise<SelfUser> {
@@ -167,5 +184,19 @@ export async function getProfile(): Promise<SelfUser> {
   const user = await request<unknown>('/api/me/profile', {
     method: 'GET',
   })
+  return requireSelfUser(user)
+}
+
+
+export async function updateProfile(
+  input: ProfileUpdateInput,
+): Promise<SelfUser> {
+  const body: Record<string, string> = {}
+  if (input.name !== undefined) body.name = input.name
+  if (input.phone !== undefined) body.phone = input.phone
+  if (input.major_class !== undefined) body.major_class = input.major_class
+  if (input.grade !== undefined) body.grade = input.grade
+
+  const user = await patchWithCsrf<unknown>('/api/me/profile', body)
   return requireSelfUser(user)
 }

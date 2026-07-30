@@ -12,6 +12,7 @@ const emit = defineEmits<{
 const isLoading = ref(true)
 const errorMessage = ref('')
 const profile = ref<SelfUser | null>(null)
+const showUpdateSuccess = ref(false)
 
 const initials = computed(() => profile.value?.name.slice(0, 1) || '同')
 const registeredAt = computed(() => {
@@ -24,6 +25,11 @@ const registeredAt = computed(() => {
     timeZone: 'Asia/Shanghai',
   }).format(new Date(profile.value.registered_at))
 })
+
+
+function dismissUpdateSuccess() {
+  showUpdateSuccess.value = false
+}
 
 
 async function loadProfile() {
@@ -51,7 +57,12 @@ async function loadProfile() {
 }
 
 
-onMounted(loadProfile)
+onMounted(() => {
+  if (window.location.search.includes('updated=1')) {
+    showUpdateSuccess.value = true
+  }
+  loadProfile()
+})
 </script>
 
 <template>
@@ -70,6 +81,16 @@ onMounted(loadProfile)
         <h1 id="profile-title">本人资料</h1>
         <p>这里的信息来自当前服务端登录会话，刷新页面后会重新读取。</p>
       </section>
+
+      <el-alert
+        v-if="showUpdateSuccess"
+        type="success"
+        title="资料修改成功"
+        :closable="true"
+        show-icon
+        class="form-alert"
+        @close="dismissUpdateSuccess"
+      />
 
       <el-card
         v-loading="isLoading"
@@ -96,13 +117,22 @@ onMounted(loadProfile)
             <div class="profile-avatar" aria-label="默认头像">
               {{ initials }}
             </div>
-            <div>
+            <div class="profile-summary-body">
               <div class="profile-name-row">
                 <h2>{{ profile.name }}</h2>
                 <el-tag type="primary" effect="light">学生用户</el-tag>
                 <el-tag type="success" effect="light">账号正常</el-tag>
               </div>
               <p>@{{ profile.username }}</p>
+            </div>
+            <div class="profile-actions">
+              <el-button
+                type="primary"
+                plain
+                @click="emit('navigate', '/student/profile/edit')"
+              >
+                编辑资料
+              </el-button>
             </div>
           </div>
 

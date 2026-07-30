@@ -229,11 +229,105 @@ def login_view(request):
         message="登录成功",
     )
 
-#GET /api/me/profile — 返回当前登录学生的个人资料。
-@require_GET
+# 本人资料的可编辑字段及其最大长度
+PROFILE_EDITABLE_FIELDS = {"name", "phone", "major_class", "grade"}
+
+# GET /api/me/profile — 返回当前登录学生的个人资料。
+# PATCH /api/me/profile — 修改本人姓名、手机号、专业班级、年级中至少一项。
 def profile(request):
+    if request.method == "PATCH":
+        return _profile_update(request)
+
+    # GET 请求：返回本人资料
     user = require_active_student(request)
     return success_response(
         data=serialize_self_user(user),
         message="本人资料获取成功",
     )
+
+
+def _profile_update(request):
+    """PATCH /api/me/profile — 修改本人可维护资料"""
+    user = require_active_student(request)
+    payload = _safe_parse_body(request)
+
+    if not isinstance(payload, dict):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求体必须为 JSON 对象",
+            status=400,
+        )
+
+    # 重新解析：只允许可编辑字段，且至少一个
+    submitted_fields = set(payload.keys())
+    if not submitted_fields:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请至少提供一个要修改的字段",
+            status=400,
+        )
+    if not submitted_fields.issubset(PROFILE_EDITABLE_FIELDS):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求包含不允许修改的字段",
+            status=400,
+        )
+
+    # 类型校验：所有字段值必须是字符串
+    if any(not isinstance(payload[field], str) for field in submitted_fields):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求字段必须为字符串",
+            status=400,
+        )
+
+    # 去除首尾空白
+    for field in submitted_fields:
+        payload[field] = payload[field].strip()
+
+    # 非空校验
+    if any(not payload[field] for field in submitted_fields):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求字段不能为空",
+            status=400,
+        )
+
+    # 长度校验
+    for field in submitted_fields:
+        maximum = FIELD_MAX_LENGTHS.get(field)
+        if maximum and len(payload[field]) > maximum:
+            raise ApiError(
+                code="VALIDATION_ERROR",
+                message=f"{field} 超过允许长度",
+                status=422,
+            )
+
+    # 应用更新
+    for field in submitted_fields:
+        setattr(user, field, payload[field])
+    user.save(update_fields=list(submitted_fields))
+
+    return success_response(
+        data=serialize_self_user(user),
+        message="资料修改成功",
+    )
+
+
+def _safe_parse_body(request):
+    """安全解析请求体，仅校验 Content-Type 和 JSON 格式，不校验字段。
+    返回解析后的 dict，或在失败时抛出 ApiError。"""
+    if request.content_type != "application/json":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求体必须使用 JSON",
+            status=400,
+        )
+    try:
+        return json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求体不是有效的 JSON",
+            status=400,
+        )
