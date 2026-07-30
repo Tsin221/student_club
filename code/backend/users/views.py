@@ -13,7 +13,8 @@ from core.responses import success_response
 
 from .serializers import serialize_self_user
 
-
+#请求字段配置
+#注册字段
 REGISTER_FIELDS = {
     "username",
     "password",
@@ -22,7 +23,10 @@ REGISTER_FIELDS = {
     "major_class",
     "grade",
 }
+#登录字段
 LOGIN_FIELDS = {"username", "password"}
+
+#各字段最大长度限制，用于防止超长输入
 FIELD_MAX_LENGTHS = {
     "username": 150,
     "name": 50,
@@ -31,15 +35,16 @@ FIELD_MAX_LENGTHS = {
     "grade": 20,
 }
 
-
+#公共检查函数
 def parse_json_object(request, expected_fields):
+    #校验 Content-Type
     if request.content_type != "application/json":
         raise ApiError(
             code="INVALID_REQUEST",
             message="请求体必须使用 JSON",
             status=400,
         )
-
+    #校验 JSON 可解析性
     try:
         payload = json.loads(request.body)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -48,31 +53,31 @@ def parse_json_object(request, expected_fields):
             message="请求体不是有效的 JSON",
             status=400,
         )
-
+    #白名单字段校验：必须是 dict，且字段集合恰好等于 expected_fields
     if not isinstance(payload, dict) or set(payload) != expected_fields:
         raise ApiError(
             code="INVALID_REQUEST",
             message="请求字段缺失或包含不允许的字段",
             status=400,
         )
-
+    # 类型校验：所有字段值必须是字符串
     if any(not isinstance(payload[field], str) for field in expected_fields):
         raise ApiError(
             code="INVALID_REQUEST",
             message="请求字段必须为字符串",
             status=400,
         )
-
+    #去除首尾空白（密码字段除外，因为密码中的空格可能是用户有意输入的）
     for field in expected_fields - {"password"}:
         payload[field] = payload[field].strip()
-
+    # 非空校验：去空白后不能为空
     if any(not payload[field] for field in expected_fields):
         raise ApiError(
             code="INVALID_REQUEST",
             message="请求字段不能为空",
             status=400,
         )
-
+    #长度校验
     for field, maximum in FIELD_MAX_LENGTHS.items():
         if field in payload and len(payload[field]) > maximum:
             raise ApiError(
@@ -83,7 +88,8 @@ def parse_json_object(request, expected_fields):
 
     return payload
 
-
+#要求当前用户是未登录状态
+#如果已登录，直接抛出403阻止操作
 def require_anonymous(request):
     if request.user.is_authenticated:
         raise ApiError(
@@ -92,7 +98,8 @@ def require_anonymous(request):
             status=403,
         )
 
-
+#守卫：要求用户已登录、账号启用且为学生角色，通过则返回 user 对象。
+#检查身份→要么报错、要么放行并返回用户
 def require_active_student(request):
     if not request.user.is_authenticated:
         raise ApiError(
@@ -118,7 +125,7 @@ def require_active_student(request):
 
     return request.user
 
-
+#初始化 CSRF Cookie 并返回令牌，SPA 每次 POST 前调用。
 @require_GET
 @ensure_csrf_cookie
 def csrf(request):
@@ -127,7 +134,7 @@ def csrf(request):
         message="CSRF 令牌初始化成功",
     )
 
-
+#POST /api/auth/register — 学生注册，校验字段与密码强度后创建用户。
 @require_POST
 def register(request):
     require_anonymous(request)
@@ -184,7 +191,7 @@ def register(request):
         status=201,
     )
 
-
+#POST /api/auth/login — 学生登录，凭据校验通过后创建 Session。
 @require_POST
 def login_view(request):
     require_anonymous(request)
@@ -222,7 +229,7 @@ def login_view(request):
         message="登录成功",
     )
 
-
+#GET /api/me/profile — 返回当前登录学生的个人资料。
 @require_GET
 def profile(request):
     user = require_active_student(request)
