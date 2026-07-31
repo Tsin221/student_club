@@ -1,18 +1,15 @@
 import type {
   LoginInput,
+  PaginatedUsers,
   ProfileUpdateInput,
   RegistrationInput,
+  ResetPasswordResult,
   SelfUser,
 } from '../types/user'
 import {
   isSuccessResponse,
   type ApiResponse,
 } from './response'
-
-
-interface CsrfData {
-  csrf_token: string
-}
 
 
 export class ApiRequestError extends Error {
@@ -109,48 +106,25 @@ async function request<T>(
 }
 
 
-async function getCsrfToken(): Promise<string> {
-  const data = await request<CsrfData>('/api/auth/csrf', {
-    method: 'GET',
-  })
-  if (typeof data.csrf_token !== 'string' || !data.csrf_token) {
-    throw new ApiRequestError(
-      'INVALID_RESPONSE',
-      'CSRF 令牌初始化失败',
-      200,
-    )
-  }
-  return data.csrf_token
-}
-
-
-async function postWithCsrf<T>(
+async function postJson<T>(
   url: string,
   body: Record<string, string>,
 ): Promise<T> {
-  const csrfToken = await getCsrfToken()
   return request<T>(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': csrfToken,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
 
 
-async function patchWithCsrf<T>(
+async function patchJson<T>(
   url: string,
   body: Record<string, string>,
 ): Promise<T> {
-  const csrfToken = await getCsrfToken()
   return request<T>(url, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': csrfToken,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
@@ -159,7 +133,7 @@ async function patchWithCsrf<T>(
 export async function registerStudent(
   input: RegistrationInput,
 ): Promise<SelfUser> {
-  const user = await postWithCsrf<unknown>('/api/auth/register', {
+  const user = await postJson<unknown>('/api/auth/register', {
     username: input.username,
     password: input.password,
     name: input.name,
@@ -172,7 +146,7 @@ export async function registerStudent(
 
 
 export async function login(input: LoginInput): Promise<SelfUser> {
-  const user = await postWithCsrf<unknown>('/api/auth/login', {
+  const user = await postJson<unknown>('/api/auth/login', {
     username: input.username,
     password: input.password,
   })
@@ -197,6 +171,74 @@ export async function updateProfile(
   if (input.major_class !== undefined) body.major_class = input.major_class
   if (input.grade !== undefined) body.grade = input.grade
 
-  const user = await patchWithCsrf<unknown>('/api/me/profile', body)
+  const user = await patchJson<unknown>('/api/me/profile', body)
   return requireSelfUser(user)
+}
+
+
+function isPaginatedUsers(value: unknown): value is PaginatedUsers {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Record<string, unknown>
+  return (
+    Array.isArray(candidate.items)
+    && typeof candidate.page === 'number'
+    && typeof candidate.page_size === 'number'
+    && typeof candidate.total === 'number'
+  )
+}
+
+
+export async function getAdminUsers(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedUsers> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/users?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedUsers(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的用户列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    requireSelfUser(item)
+  }
+
+  return data
+}
+
+
+export async function resetPassword(
+  userId: number,
+  newPassword: string,
+): Promise<ResetPasswordResult> {
+  const data = await postJson<unknown>(
+    `/api/admin/users/${userId}/reset-password`,
+    { new_password: newPassword },
+  )
+
+  if (
+    typeof data !== 'object'
+    || data === null
+    || typeof (data as Record<string, unknown>).user_id !== 'number'
+  ) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的密码重置结果格式不正确',
+      200,
+    )
+  }
+
+  return data as ResetPasswordResult
 }

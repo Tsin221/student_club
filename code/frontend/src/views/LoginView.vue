@@ -59,8 +59,12 @@ async function submit() {
   isSubmitting.value = true
   errorMessage.value = ''
   try {
-    await login(form)
-    emit('navigate', '/student')
+    const user = await login(form)
+    if (user.platform_role === 'system_admin') {
+      emit('navigate', '/admin/users')
+    } else {
+      emit('navigate', '/student')
+    }
   } catch (error) {
     errorMessage.value = error instanceof ApiRequestError
       ? error.message

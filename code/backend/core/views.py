@@ -1,9 +1,2 @@
-from .responses import error_response
-#CSRF证明请求来自可信页面
-
-def csrf_failure(request, reason=""):
-    return error_response(
-        code="CSRF_FAILED",
-        message="CSRF 校验失败",
-        status=403,
-    )
+# core/views.py — 预留视图基类或公共端点。
+# CSRF 已在 S03 移除，原 csrf_failure 视图不再需要。

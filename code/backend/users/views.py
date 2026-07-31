@@ -4,14 +4,12 @@ from django.contrib.auth import get_user_model, login
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.middleware.csrf import get_token
-from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .serializers import serialize_self_user
+from .serializers import serialize_admin_student, serialize_self_user
 
 #请求字段配置
 #注册字段
@@ -125,14 +123,26 @@ def require_active_student(request):
 
     return request.user
 
-#初始化 CSRF Cookie 并返回令牌，SPA 每次 POST 前调用。
-@require_GET
-@ensure_csrf_cookie
-def csrf(request):
-    return success_response(
-        data={"csrf_token": get_token(request)},
-        message="CSRF 令牌初始化成功",
-    )
+
+#守卫：要求用户已认证且为系统管理员，通过则返回 user 对象。
+def require_admin(request):
+    if not request.user.is_authenticated:
+        raise ApiError(
+            code="UNAUTHENTICATED",
+            message="请先登录",
+            status=401,
+        )
+
+    user_model = get_user_model()
+    if request.user.platform_role != user_model.PlatformRole.ADMIN:
+        raise ApiError(
+            code="FORBIDDEN",
+            message="当前账号不是管理员账号",
+            status=403,
+        )
+
+    return request.user
+
 
 #POST /api/auth/register — 学生注册，校验字段与密码强度后创建用户。
 @require_POST
@@ -336,3 +346,121 @@ def _safe_parse_body(request):
             message="请求体不是有效的 JSON",
             status=400,
         )
+
+
+# ── 管理员用户管理 ────────────────────────────────────────────
+
+#管理员用户列表分页默认参数
+ADMIN_USERS_DEFAULT_PAGE = 1
+ADMIN_USERS_DEFAULT_PAGE_SIZE = 20
+ADMIN_USERS_MAX_PAGE_SIZE = 100
+
+#GET /api/admin/users — 管理员分页查看学生账号列表，不含管理员账号。
+@require_GET
+def admin_list_users(request):
+    admin = require_admin(request)
+    user_model = get_user_model()
+
+    # 解析分页参数
+    try:
+        page = int(request.GET.get("page", ADMIN_USERS_DEFAULT_PAGE))
+        page_size = int(request.GET.get("page_size", ADMIN_USERS_DEFAULT_PAGE_SIZE))
+    except (TypeError, ValueError):
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="分页参数必须为整数",
+            status=422,
+        )
+
+    if page < 1:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="页码必须大于等于 1",
+            status=422,
+        )
+    if page_size < 1 or page_size > ADMIN_USERS_MAX_PAGE_SIZE:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message=f"每页条数必须在 1—{ADMIN_USERS_MAX_PAGE_SIZE} 之间",
+            status=422,
+        )
+
+    # 只查询学生用户
+    queryset = user_model.objects.filter(
+        platform_role=user_model.PlatformRole.STUDENT,
+    ).order_by("id")
+
+    total = queryset.count()
+    offset = (page - 1) * page_size
+    users = list(queryset[offset : offset + page_size])
+
+    return success_response(
+        data={
+            "items": [serialize_admin_student(u) for u in users],
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+        },
+        message="学生用户列表获取成功",
+    )
+
+
+#POST /api/admin/users/{user_id}/reset-password — 管理员重置学生密码。
+@require_POST
+def admin_reset_password(request, user_id):
+    admin = require_admin(request)
+    user_model = get_user_model()
+
+    # 查找目标用户
+    try:
+        target_user = user_model.objects.get(id=user_id)
+    except user_model.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="用户不存在",
+            status=404,
+        )
+
+    # 只能为学生重置密码
+    if target_user.platform_role != user_model.PlatformRole.STUDENT:
+        raise ApiError(
+            code="NOT_STUDENT_USER",
+            message="只能为学生账号重置密码",
+            status=422,
+        )
+
+    # 解析请求体
+    payload = _safe_parse_body(request)
+    if not isinstance(payload, dict) or set(payload) != {"new_password"}:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求字段缺失或包含不允许的字段",
+            status=400,
+        )
+
+    new_password = payload["new_password"]
+    if not isinstance(new_password, str) or not new_password.strip():
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="新密码不能为空",
+            status=400,
+        )
+
+    # 校验密码强度
+    try:
+        validate_password(new_password, user=target_user)
+    except ValidationError as error:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="；".join(error.messages),
+            status=422,
+        ) from error
+
+    # 设置新密码
+    target_user.set_password(new_password)
+    target_user.save(update_fields=["password"])
+
+    return success_response(
+        data={"user_id": target_user.id},
+        message="密码重置成功",
+    )

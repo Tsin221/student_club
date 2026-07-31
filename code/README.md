@@ -51,7 +51,7 @@ uv run python manage.py migrate
 uv run python manage.py runserver 127.0.0.1:8000
 ```
 
-后端使用 Django Session、`HttpOnly` 会话 Cookie 和 CSRF，不使用 Bearer Token。
+后端使用 Django Session、`HttpOnly` 会话 Cookie，不使用 Bearer Token。
 
 ## 4. 初始化并启动前端
 

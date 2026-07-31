@@ -5,7 +5,6 @@ from django.test import RequestFactory
 from core.exceptions import ApiError
 from core.middleware import ApiExceptionMiddleware
 from core.responses import error_response, success_response
-from core.views import csrf_failure
 
 
 def response_body(response):
@@ -76,16 +75,3 @@ def test_unexpected_exception_is_converted_to_internal_error():
         "data": None,
     }
     assert b"sensitive internal detail" not in response.content
-
-
-def test_csrf_failure_uses_the_confirmed_error_code():
-    request = RequestFactory().post("/api/example")
-
-    response = csrf_failure(request, reason="test")
-
-    assert response.status_code == 403
-    assert response_body(response) == {
-        "code": "CSRF_FAILED",
-        "message": "CSRF 校验失败",
-        "data": None,
-    }

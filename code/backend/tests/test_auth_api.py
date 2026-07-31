@@ -8,7 +8,6 @@ from django.test import Client
 REGISTER_URL = "/api/auth/register"
 LOGIN_URL = "/api/auth/login"
 PROFILE_URL = "/api/me/profile"
-CSRF_URL = "/api/auth/csrf"
 
 VALID_REGISTRATION = {
     "username": "student_2026",
@@ -24,22 +23,11 @@ def response_body(response):
     return json.loads(response.content)
 
 
-def csrf_client():
-    client = Client(enforce_csrf_checks=True)
-    response = client.get(CSRF_URL)
-    token = response_body(response)["data"]["csrf_token"]
-    return client, token
-
-
-def post_json(client, url, data, *, csrf_token=None):
-    headers = {}
-    if csrf_token is not None:
-        headers["HTTP_X_CSRFTOKEN"] = csrf_token
+def post_json(client, url, data):
     return client.post(
         url,
         data=json.dumps(data),
         content_type="application/json",
-        **headers,
     )
 
 
@@ -57,28 +45,10 @@ def create_user(**overrides):
 
 
 @pytest.mark.django_db
-def test_csrf_endpoint_initializes_cookie_and_returns_token():
-    client = Client(enforce_csrf_checks=True)
-
-    response = client.get(CSRF_URL)
-
-    assert response.status_code == 200
-    body = response_body(response)
-    assert body["code"] == "SUCCESS"
-    assert body["data"]["csrf_token"]
-    assert "csrftoken" in response.cookies
-
-
-@pytest.mark.django_db
 def test_registration_creates_active_student_without_logging_in():
-    client, token = csrf_client()
+    client = Client()
 
-    response = post_json(
-        client,
-        REGISTER_URL,
-        VALID_REGISTRATION,
-        csrf_token=token,
-    )
+    response = post_json(client, REGISTER_URL, VALID_REGISTRATION)
 
     assert response.status_code == 201
     body = response_body(response)
@@ -104,14 +74,9 @@ def test_registration_creates_active_student_without_logging_in():
 @pytest.mark.django_db
 def test_registration_rejects_duplicate_username():
     create_user(username=VALID_REGISTRATION["username"])
-    client, token = csrf_client()
+    client = Client()
 
-    response = post_json(
-        client,
-        REGISTER_URL,
-        VALID_REGISTRATION,
-        csrf_token=token,
-    )
+    response = post_json(client, REGISTER_URL, VALID_REGISTRATION)
 
     assert response.status_code == 409
     assert response_body(response)["code"] == "USERNAME_EXISTS"
@@ -127,15 +92,10 @@ def test_registration_rejects_duplicate_username():
     ],
 )
 def test_registration_rejects_client_controlled_system_fields(field, value):
-    client, token = csrf_client()
+    client = Client()
     payload = {**VALID_REGISTRATION, field: value}
 
-    response = post_json(
-        client,
-        REGISTER_URL,
-        payload,
-        csrf_token=token,
-    )
+    response = post_json(client, REGISTER_URL, payload)
 
     assert response.status_code == 400
     assert response_body(response)["code"] == "INVALID_REQUEST"
@@ -146,62 +106,24 @@ def test_registration_rejects_client_controlled_system_fields(field, value):
 
 @pytest.mark.django_db
 def test_registration_applies_django_password_validation():
-    client, token = csrf_client()
+    client = Client()
     payload = {**VALID_REGISTRATION, "password": "12345678"}
 
-    response = post_json(
-        client,
-        REGISTER_URL,
-        payload,
-        csrf_token=token,
-    )
+    response = post_json(client, REGISTER_URL, payload)
 
     assert response.status_code == 422
     assert response_body(response)["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("url", [REGISTER_URL, LOGIN_URL])
-def test_auth_writes_reject_missing_csrf_token(url):
-    client = Client(enforce_csrf_checks=True)
-    payload = (
-        VALID_REGISTRATION
-        if url == REGISTER_URL
-        else {"username": "student", "password": "password"}
-    )
-
-    response = post_json(client, url, payload)
-
-    assert response.status_code == 403
-    assert response_body(response)["code"] == "CSRF_FAILED"
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("url", [REGISTER_URL, LOGIN_URL])
-def test_auth_writes_reject_invalid_csrf_token(url):
-    client, _ = csrf_client()
-    payload = (
-        VALID_REGISTRATION
-        if url == REGISTER_URL
-        else {"username": "student", "password": "password"}
-    )
-
-    response = post_json(client, url, payload, csrf_token="A" * 64)
-
-    assert response.status_code == 403
-    assert response_body(response)["code"] == "CSRF_FAILED"
-
-
-@pytest.mark.django_db
 def test_login_sets_httponly_session_and_profile_reads_session_user():
     user = create_user()
-    client, token = csrf_client()
+    client = Client()
 
     response = post_json(
         client,
         LOGIN_URL,
         {"username": user.username, "password": "StrongPass!2026"},
-        csrf_token=token,
     )
 
     assert response.status_code == 200
@@ -220,13 +142,12 @@ def test_login_sets_httponly_session_and_profile_reads_session_user():
 @pytest.mark.django_db
 def test_login_rejects_invalid_credentials():
     create_user()
-    client, token = csrf_client()
+    client = Client()
 
     response = post_json(
         client,
         LOGIN_URL,
         {"username": "existing_student", "password": "WrongPass!2026"},
-        csrf_token=token,
     )
 
     assert response.status_code == 401
@@ -237,7 +158,7 @@ def test_login_rejects_invalid_credentials():
 @pytest.mark.django_db
 def test_login_rejects_disabled_account():
     create_user(account_status=get_user_model().AccountStatus.DISABLED)
-    client, token = csrf_client()
+    client = Client()
 
     response = post_json(
         client,
@@ -246,7 +167,6 @@ def test_login_rejects_disabled_account():
             "username": "existing_student",
             "password": "StrongPass!2026",
         },
-        csrf_token=token,
     )
 
     assert response.status_code == 403

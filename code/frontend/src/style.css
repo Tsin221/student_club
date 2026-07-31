@@ -167,7 +167,8 @@ a:hover {
   background: #f3f6fa;
 }
 
-.student-header {
+.student-header,
+.admin-header {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -177,7 +178,8 @@ a:hover {
   background: #ffffff;
 }
 
-.student-header .eyebrow {
+.student-header .eyebrow,
+.admin-header .eyebrow {
   margin-bottom: 3px;
 }
 
@@ -206,6 +208,17 @@ a:hover {
   padding: 56px 0 80px;
 }
 
+.admin-page {
+  min-height: 100vh;
+  background: #f3f6fa;
+}
+
+.admin-content {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 56px 0 80px;
+}
+
 .page-heading {
   margin-bottom: 28px;
 }
@@ -228,8 +241,25 @@ a:hover {
   border: 1px solid var(--border);
 }
 
-.profile-card .el-card__body {
+.profile-card .el-card__body,
+.data-card .el-card__body {
   padding: 32px;
+}
+
+.data-card {
+  border: 1px solid var(--border);
+}
+
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.dialog-hint {
+  margin: 0 0 16px;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
 .profile-summary {
@@ -313,11 +343,13 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
-  .student-header {
+  .student-header,
+  .admin-header {
     padding: 0 20px;
   }
 
-  .student-content {
+  .student-content,
+  .admin-content {
     width: min(100% - 32px, 1120px);
     padding-top: 40px;
   }

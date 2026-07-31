@@ -5,6 +5,7 @@ import LoginView from './views/LoginView.vue'
 import RegisterView from './views/RegisterView.vue'
 import StudentProfileEditView from './views/StudentProfileEditView.vue'
 import StudentView from './views/StudentView.vue'
+import AdminUsersView from './views/AdminUsersView.vue'
 
 
 const currentPath = ref(window.location.pathname)
@@ -18,6 +19,8 @@ const currentView = computed(() => {
       return StudentProfileEditView
     case '/student':
       return StudentView
+    case '/admin/users':
+      return AdminUsersView
     case '/login':
     default:
       return LoginView
@@ -42,7 +45,7 @@ function syncRoute() {
 
 onMounted(() => {
   window.addEventListener('popstate', syncRoute)
-  if (!['/login', '/register', '/student', '/student/profile/edit'].includes(currentPath.value)) {
+  if (!['/login', '/register', '/student', '/student/profile/edit', '/admin/users'].includes(currentPath.value)) {
     navigate('/login')
   }
 })

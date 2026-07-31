@@ -33,3 +33,21 @@ export interface ProfileUpdateInput {
   major_class?: string
   grade?: string
 }
+
+
+export interface PaginatedUsers {
+  items: SelfUser[]
+  page: number
+  page_size: number
+  total: number
+}
+
+
+export interface ResetPasswordInput {
+  new_password: string
+}
+
+
+export interface ResetPasswordResult {
+  user_id: number
+}

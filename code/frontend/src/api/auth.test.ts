@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ApiRequestError,
+  getAdminUsers,
   getProfile,
   registerStudent,
+  resetPassword,
   updateProfile,
 } from './auth'
 
@@ -36,26 +38,17 @@ afterEach(() => {
 
 
 describe('registerStudent', () => {
-  it('initializes CSRF and submits only allowed registration fields', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        apiResponse({
+  it('submits only allowed registration fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      apiResponse(
+        {
           code: 'SUCCESS',
-          message: 'CSRF 令牌初始化成功',
-          data: { csrf_token: 'csrf-token' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        apiResponse(
-          {
-            code: 'SUCCESS',
-            message: '注册成功，请登录',
-            data: student,
-          },
-          { status: 201 },
-        ),
-      )
+          message: '注册成功，请登录',
+          data: student,
+        },
+        { status: 201 },
+      ),
+    )
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await registerStudent({
@@ -68,23 +61,13 @@ describe('registerStudent', () => {
     })
 
     expect(result).toEqual(student)
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/auth/csrf',
-      expect.objectContaining({
-        credentials: 'same-origin',
-        method: 'GET',
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/auth/register',
       expect.objectContaining({
         credentials: 'same-origin',
         method: 'POST',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
-          'X-CSRFToken': 'csrf-token',
         }),
       }),
     )
@@ -137,23 +120,14 @@ describe('getProfile', () => {
 
 
 describe('updateProfile', () => {
-  it('initializes CSRF and submits a PATCH with allowed fields', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        apiResponse({
-          code: 'SUCCESS',
-          message: 'CSRF 令牌初始化成功',
-          data: { csrf_token: 'csrf-token-patch' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        apiResponse({
-          code: 'SUCCESS',
-          message: '资料修改成功',
-          data: { ...student, name: '新姓名', phone: '13700000001' },
-        }),
-      )
+  it('submits a PATCH with allowed fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      apiResponse({
+        code: 'SUCCESS',
+        message: '资料修改成功',
+        data: { ...student, name: '新姓名', phone: '13700000001' },
+      }),
+    )
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await updateProfile({
@@ -164,23 +138,13 @@ describe('updateProfile', () => {
     expect(result.name).toBe('新姓名')
     expect(result.phone).toBe('13700000001')
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/auth/csrf',
-      expect.objectContaining({
-        credentials: 'same-origin',
-        method: 'GET',
-      }),
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/me/profile',
       expect.objectContaining({
         credentials: 'same-origin',
         method: 'PATCH',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
-          'X-CSRFToken': 'csrf-token-patch',
         }),
       }),
     )
@@ -189,31 +153,126 @@ describe('updateProfile', () => {
   it('rejects an error response with the stable error code', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          apiResponse({
-            code: 'SUCCESS',
-            message: 'CSRF 令牌初始化成功',
-            data: { csrf_token: 'csrf-token-patch' },
-          }),
-        )
-        .mockResolvedValueOnce(
-          apiResponse(
-            {
-              code: 'INVALID_REQUEST',
-              message: '请求包含不允许修改的字段',
-              data: null,
-            },
-            { status: 400 },
-          ),
+      vi.fn().mockResolvedValue(
+        apiResponse(
+          {
+            code: 'INVALID_REQUEST',
+            message: '请求包含不允许修改的字段',
+            data: null,
+          },
+          { status: 400 },
         ),
+      ),
     )
 
     await expect(
       updateProfile({ username: 'hacked' } as unknown as Record<string, string>),
     ).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
+    })
+  })
+})
+
+
+describe('getAdminUsers', () => {
+  it('sends pagination query params and returns paginated users', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        apiResponse({
+          code: 'SUCCESS',
+          message: '学生用户列表获取成功',
+          data: {
+            items: [student],
+            page: 1,
+            page_size: 20,
+            total: 1,
+          },
+        }),
+      ),
+    )
+
+    const result = await getAdminUsers(1, 20)
+
+    expect(result.items).toEqual([student])
+    expect(result.page).toBe(1)
+    expect(result.page_size).toBe(20)
+    expect(result.total).toBe(1)
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/users?page=1&page_size=20',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        method: 'GET',
+      }),
+    )
+  })
+
+  it('rejects a malformed paginated response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        apiResponse({
+          code: 'SUCCESS',
+          message: '学生用户列表获取成功',
+          data: { items: 'not-an-array', page: 1 },
+        }),
+      ),
+    )
+
+    await expect(getAdminUsers()).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    })
+  })
+})
+
+
+describe('resetPassword', () => {
+  it('POSTs new password for a student', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      apiResponse({
+        code: 'SUCCESS',
+        message: '密码重置成功',
+        data: { user_id: 1 },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await resetPassword(1, 'NewStrongPass!2026')
+
+    expect(result.user_id).toBe(1)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/users/1/reset-password',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      }),
+    )
+  })
+
+  it('rejects an error response with the stable error code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        apiResponse(
+          {
+            code: 'VALIDATION_ERROR',
+            message: '密码太常见。',
+            data: null,
+          },
+          { status: 422 },
+        ),
+      ),
+    )
+
+    await expect(
+      resetPassword(1, '12345678'),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
     })
   })
 })
