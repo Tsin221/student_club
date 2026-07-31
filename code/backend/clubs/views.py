@@ -9,12 +9,15 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Club, ClubMembership, Recruitment
+from .models import Club, ClubMembership, JoinApplication, Notification, Recruitment
 from .serializers import (
+    compute_recruitment_status,
     serialize_club,
+    serialize_join_application,
     serialize_membership_for_admin,
     serialize_membership_for_leader,
     serialize_my_membership,
+    serialize_notification,
     serialize_recruitment,
 )
 
@@ -1393,14 +1396,17 @@ def _leader_update_recruitment(request, recruitment_id):
                 status=422,
             )
 
-        # TODO S07: 将 approved_count 改为真实查询后，此处校验
-        #   capacity >= approved_count
-        #   if capacity < approved_count:
-        #       raise ApiError(
-        #           code="CAPACITY_BELOW_APPROVED",
-        #           message="招新人数不能低于已通过人数",
-        #           status=422,
-        #       )
+        #校验容量不低于已通过人数
+        approved_count = JoinApplication.objects.filter(
+            recruitment=recruitment,
+            status=JoinApplication.Status.APPROVED,
+        ).count()
+        if capacity < approved_count:
+            raise ApiError(
+                code="CAPACITY_BELOW_APPROVED",
+                message=f"招新人数不能低于已通过人数（{approved_count}）",
+                status=422,
+            )
 
         recruitment.capacity = capacity
 
@@ -1527,4 +1533,413 @@ def admin_list_recruitments(request):
             total,
         ),
         message="招新记录列表获取成功",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S07：入社申请、审核、成员创建与通知
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/recruitments/{recruitment_id}/applications ──────
+
+#学生向招新提交入社申请。
+def student_create_application(request, recruitment_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    user = require_active_student(request)
+
+    #查找招新
+    try:
+        recruitment = Recruitment.objects.select_related("club").get(id=recruitment_id)
+    except Recruitment.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="招新信息不存在",
+            status=404,
+        )
+
+    club = recruitment.club
+
+    #所属社团必须正常
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    #校验动态状态是否为"进行中"
+    display_status, _approved_count = compute_recruitment_status(recruitment)
+    if display_status != "进行中":
+        error_map = {
+            "未开始": ("RECRUITMENT_NOT_STARTED", "该招新尚未开始"),
+            "已满": ("RECRUITMENT_FULL", "该招新人数已满"),
+            "已结束": ("RECRUITMENT_ENDED", "该招新已结束"),
+        }
+        code, message = error_map.get(
+            display_status,
+            ("RECRUITMENT_ENDED", "该招新当前不可申请"),
+        )
+        raise ApiError(code=code, message=message, status=409)
+
+    #校验申请人不在该社团
+    existing_membership = ClubMembership.objects.filter(
+        user=user,
+        club=club,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+    ).exists()
+    if existing_membership:
+        raise ApiError(
+            code="ALREADY_CLUB_MEMBER",
+            message="你已经是该社团的成员",
+            status=409,
+        )
+
+    #校验无重复待审核申请
+    if JoinApplication.objects.filter(
+        recruitment=recruitment,
+        applicant=user,
+        status=JoinApplication.Status.PENDING,
+    ).exists():
+        raise ApiError(
+            code="PENDING_APPLICATION_EXISTS",
+            message="你已有一条待审核的入社申请",
+            status=409,
+        )
+
+    #校验不是申请往期招新（被拒绝后只能申请该社团后续发布的新招新）
+    latest_rejected = JoinApplication.objects.filter(
+        applicant=user,
+        club=club,
+        status=JoinApplication.Status.REJECTED,
+    ).order_by("-recruitment__published_at").first()
+    if latest_rejected and recruitment.published_at <= latest_rejected.recruitment.published_at:
+        raise ApiError(
+            code="NOT_LATER_RECRUITMENT",
+            message="你已被该社团拒绝，只能申请后续发布的新招新",
+            status=409,
+        )
+
+    #解析请求体
+    body = _parse_json_body(request)
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="申请理由不能为空",
+            status=400,
+        )
+
+    application = JoinApplication.objects.create(
+        applicant=user,
+        applicant_name_snapshot=user.name,
+        applicant_major_class_snapshot=user.major_class,
+        club=club,
+        recruitment=recruitment,
+        reason=reason,
+        status=JoinApplication.Status.PENDING,
+    )
+
+    return success_response(
+        data=serialize_join_application(application),
+        message="入社申请提交成功",
+        status=201,
+    )
+
+
+# ── GET /api/me/join-applications ─────────────────────────────
+
+#学生查看本人全部入社申请。
+@require_GET
+def my_join_applications(request):
+    user = require_active_student(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        JoinApplication.objects
+        .filter(applicant=user)
+        .select_related("club", "recruitment")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_join_application(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="入社申请列表获取成功",
+    )
+
+
+# ── GET /api/leader/clubs/{club_id}/join-applications ──────────
+
+#负责人查看本社团全部入社申请。
+@require_GET
+def leader_join_applications(request, club_id):
+    require_leader_of_club(request, club_id)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        JoinApplication.objects
+        .filter(club_id=club_id)
+        .select_related("applicant", "recruitment")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_join_application(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="入社申请列表获取成功",
+    )
+
+
+# ── POST /api/leader/join-applications/{application_id}/approve ─
+
+#负责人通过入社申请。
+def leader_approve_application(request, application_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    #查申请，反查社团
+    try:
+        application = JoinApplication.objects.select_related(
+            "club", "recruitment", "applicant",
+        ).get(id=application_id)
+    except JoinApplication.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="入社申请不存在",
+            status=404,
+        )
+
+    #验证当前用户是该社团有效负责人
+    require_leader_of_club(request, application.club_id)
+
+    #申请必须是待审核
+    if application.status != JoinApplication.Status.PENDING:
+        raise ApiError(
+            code="APPLICATION_NOT_PENDING",
+            message="该申请已经处理",
+            status=409,
+        )
+
+    #事务中执行
+    try:
+        with transaction.atomic():
+            #重新锁定招新，检查容量
+            recruitment = Recruitment.objects.select_for_update().get(
+                id=application.recruitment_id,
+            )
+            approved_count = JoinApplication.objects.filter(
+                recruitment=recruitment,
+                status=JoinApplication.Status.APPROVED,
+            ).count()
+
+            if approved_count >= recruitment.capacity:
+                raise ApiError(
+                    code="RECRUITMENT_FULL",
+                    message="招新人数已满",
+                    status=409,
+                )
+
+            #重新检查申请人账号和成员状态
+            user_model = get_user_model()
+            applicant = application.applicant
+            if applicant.account_status != user_model.AccountStatus.ACTIVE:
+                raise ApiError(
+                    code="APPLICANT_DISABLED",
+                    message="申请人账号已停用",
+                    status=422,
+                )
+
+            #检查申请人是否已在社
+            active_membership = ClubMembership.objects.filter(
+                user=applicant,
+                club=application.club,
+                member_status=ClubMembership.MemberStatus.ACTIVE,
+            ).first()
+            if active_membership:
+                raise ApiError(
+                    code="ALREADY_CLUB_MEMBER",
+                    message="申请人已经是该社团成员",
+                    status=409,
+                )
+
+            #更新申请状态
+            application.status = JoinApplication.Status.APPROVED
+            application.save()
+
+            #创建或恢复成员关系
+            membership, created = ClubMembership.objects.get_or_create(
+                user=applicant,
+                club=application.club,
+                defaults={
+                    "member_status": ClubMembership.MemberStatus.ACTIVE,
+                    "club_role": ClubMembership.ClubRole.MEMBER,
+                },
+            )
+            if not created:
+                #恢复已有关系
+                membership.member_status = ClubMembership.MemberStatus.ACTIVE
+                membership.club_role = ClubMembership.ClubRole.MEMBER
+                membership.save()
+
+            #生成通知
+            notification_content = (
+                f"你在社团「{application.club.name}」的入社申请（招新：{application.recruitment.title}）"
+                f"已通过审核。你现在是该社团的正式成员。"
+            )
+            Notification.objects.create(
+                recipient=applicant,
+                type=Notification.Type.APPLICATION_REVIEWED,
+                content=notification_content,
+            )
+
+    except ApiError:
+        raise
+    except IntegrityError as error:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="操作失败，请稍后重试",
+            status=500,
+        ) from error
+
+    return success_response(
+        data={
+            "application": serialize_join_application(application),
+            "membership": {
+                "id": membership.id,
+                "user_id": applicant.id,
+                "club_id": application.club_id,
+                "member_status": membership.member_status,
+                "club_role": membership.club_role,
+            },
+        },
+        message="入社申请已通过",
+    )
+
+
+# ── POST /api/leader/join-applications/{application_id}/reject ─
+
+#负责人拒绝入社申请。
+def leader_reject_application(request, application_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        application = JoinApplication.objects.select_related(
+            "club", "recruitment", "applicant",
+        ).get(id=application_id)
+    except JoinApplication.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="入社申请不存在",
+            status=404,
+        )
+
+    #验证当前用户是该社团有效负责人
+    require_leader_of_club(request, application.club_id)
+
+    if application.status != JoinApplication.Status.PENDING:
+        raise ApiError(
+            code="APPLICATION_NOT_PENDING",
+            message="该申请已经处理",
+            status=409,
+        )
+
+    try:
+        with transaction.atomic():
+            application.status = JoinApplication.Status.REJECTED
+            application.save()
+
+            #生成通知
+            notification_content = (
+                f"你在社团「{application.club.name}」的入社申请（招新：{application.recruitment.title}）"
+                f"已被拒绝。如有疑问请联系社团负责人。"
+            )
+            Notification.objects.create(
+                recipient=application.applicant,
+                type=Notification.Type.APPLICATION_REVIEWED,
+                content=notification_content,
+            )
+    except IntegrityError as error:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="操作失败，请稍后重试",
+            status=500,
+        ) from error
+
+    return success_response(
+        data=serialize_join_application(application),
+        message="入社申请已拒绝",
+    )
+
+
+# ── GET /api/admin/join-applications ────────────────────────────
+
+#管理员查看全量入社申请记录（只读）。
+@require_GET
+def admin_join_applications(request):
+    require_admin(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        JoinApplication.objects
+        .select_related("applicant", "club", "recruitment")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_join_application(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="入社申请列表获取成功",
+    )
+
+
+# ── GET /api/me/notifications ──────────────────────────────────
+
+#学生查看本人通知列表。
+@require_GET
+def my_notifications(request):
+    user = require_active_student(request)
+
+    notifications = Notification.objects.filter(
+        recipient=user,
+    ).order_by("-id")
+
+    return success_response(
+        data={
+            "items": [serialize_notification(n) for n in notifications],
+        },
+        message="通知列表获取成功",
     )

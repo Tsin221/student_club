@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
-import LoginView from './views/LoginView.vue'
-import RegisterView from './views/RegisterView.vue'
-import StudentProfileEditView from './views/StudentProfileEditView.vue'
-import StudentView from './views/StudentView.vue'
-import StudentClubsView from './views/StudentClubsView.vue'
-import StudentClubDetailView from './views/StudentClubDetailView.vue'
-import StudentMembershipsView from './views/StudentMembershipsView.vue'
-import AdminUsersView from './views/AdminUsersView.vue'
-import AdminClubsView from './views/AdminClubsView.vue'
+import AdminApplicationsView from './views/AdminApplicationsView.vue'
 import AdminClubDetailView from './views/AdminClubDetailView.vue'
+import AdminClubsView from './views/AdminClubsView.vue'
 import AdminMembershipsView from './views/AdminMembershipsView.vue'
 import AdminRecruitmentsView from './views/AdminRecruitmentsView.vue'
+import AdminUsersView from './views/AdminUsersView.vue'
+import LeaderApplicationsView from './views/LeaderApplicationsView.vue'
 import LeaderClubWorkspaceView from './views/LeaderClubWorkspaceView.vue'
 import LeaderRecruitmentsView from './views/LeaderRecruitmentsView.vue'
+import LoginView from './views/LoginView.vue'
+import RegisterView from './views/RegisterView.vue'
+import StudentApplicationsView from './views/StudentApplicationsView.vue'
+import StudentClubDetailView from './views/StudentClubDetailView.vue'
+import StudentClubsView from './views/StudentClubsView.vue'
+import StudentMembershipsView from './views/StudentMembershipsView.vue'
+import StudentNotificationsView from './views/StudentNotificationsView.vue'
+import StudentProfileEditView from './views/StudentProfileEditView.vue'
 import StudentRecruitmentsView from './views/StudentRecruitmentsView.vue'
+import StudentView from './views/StudentView.vue'
 
 
 const currentPath = ref(window.location.pathname)
@@ -46,6 +50,11 @@ function isLeaderRecruitments(path: string): boolean {
   return /^\/leader\/clubs\/\d+\/recruitments$/.test(path)
 }
 
+//负责人入社申请匹配（/leader/clubs/{数字}/applications）
+function isLeaderApplications(path: string): boolean {
+  return /^\/leader\/clubs\/\d+\/applications$/.test(path)
+}
+
 const currentView = computed(() => {
   const path = currentPath.value
   switch (path) {
@@ -59,6 +68,10 @@ const currentView = computed(() => {
       return StudentClubsView
     case '/student/memberships':
       return StudentMembershipsView
+    case '/student/applications':
+      return StudentApplicationsView
+    case '/student/notifications':
+      return StudentNotificationsView
     case '/admin/users':
       return AdminUsersView
     case '/admin/clubs':
@@ -67,6 +80,8 @@ const currentView = computed(() => {
       return AdminMembershipsView
     case '/admin/recruitments':
       return AdminRecruitmentsView
+    case '/admin/applications':
+      return AdminApplicationsView
     case '/login':
     default: {
       if (isStudentClubDetail(path)) {
@@ -80,6 +95,9 @@ const currentView = computed(() => {
       }
       if (isLeaderRecruitments(path)) {
         return LeaderRecruitmentsView
+      }
+      if (isLeaderApplications(path)) {
+        return LeaderApplicationsView
       }
       if (isLeaderClubWorkspace(path)) {
         return LeaderClubWorkspaceView
@@ -108,7 +126,9 @@ function syncRoute() {
 const VALID_PATHS = [
   '/login', '/register',
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
+  '/student/applications', '/student/notifications',
   '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
+  '/admin/applications',
 ]
 
 function isValidPath(path: string): boolean {
@@ -117,6 +137,7 @@ function isValidPath(path: string): boolean {
     || isStudentRecruitments(path)
     || isAdminClubDetail(path)
     || isLeaderRecruitments(path)
+    || isLeaderApplications(path)
     || isLeaderClubWorkspace(path)
 }
 

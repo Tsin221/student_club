@@ -69,6 +69,36 @@ urlpatterns = [
     ),
     #管理员招新记录
     path("api/admin/recruitments", club_views.admin_list_recruitments),
+    # ── S07：入社申请与通知 ──
+    #学生提交入社申请
+    path(
+        "api/recruitments/<int:recruitment_id>/applications",
+        club_views.student_create_application,
+    ),
+    #学生查看本人全部申请
+    path("api/me/join-applications", club_views.my_join_applications),
+    #负责人查看本社团申请
+    path(
+        "api/leader/clubs/<int:club_id>/join-applications",
+        club_views.leader_join_applications,
+    ),
+    #负责人通过申请
+    path(
+        "api/leader/join-applications/<int:application_id>/approve",
+        club_views.leader_approve_application,
+    ),
+    #负责人拒绝申请
+    path(
+        "api/leader/join-applications/<int:application_id>/reject",
+        club_views.leader_reject_application,
+    ),
+    #管理员查看全量申请
+    path(
+        "api/admin/join-applications",
+        club_views.admin_join_applications,
+    ),
+    #学生查看通知
+    path("api/me/notifications", club_views.my_notifications),
 ]
 
 #开发环境媒体文件服务

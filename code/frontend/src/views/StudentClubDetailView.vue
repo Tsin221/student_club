@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
+import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
 import { getClubDetail, getPublicRecruitments } from '../api/clubs'
 import type { Club, Recruitment } from '../types/club'
@@ -97,6 +99,54 @@ function statusTagType(status: string): 'info' | 'success' | 'warning' | 'danger
     case '已满': return 'warning'
     case '已结束': return 'danger'
     default: return 'info'
+  }
+}
+
+
+// ── S07 申请弹窗 ──────────────────────────────────────────
+
+const dialogVisible = ref(false)
+const applyingRecruitmentId = ref(0)
+const applyingRecruitmentTitle = ref('')
+const isSubmitting = ref(false)
+const formRef = ref<FormInstance>()
+
+const form = reactive({
+  reason: '',
+})
+
+const formRules: FormRules<typeof form> = {
+  reason: [
+    { required: true, message: '请输入申请理由', trigger: 'blur' },
+  ],
+}
+
+
+function openApplyDialog(recruitment: Recruitment) {
+  applyingRecruitmentId.value = recruitment.id
+  applyingRecruitmentTitle.value = recruitment.title
+  form.reason = ''
+  dialogVisible.value = true
+}
+
+
+async function handleSubmitApplication() {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  isSubmitting.value = true
+  try {
+    await submitApplication(applyingRecruitmentId.value, form.reason)
+    ElMessage.success('入社申请提交成功')
+    dialogVisible.value = false
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('提交失败，请稍后重试')
+    }
+  } finally {
+    isSubmitting.value = false
   }
 }
 
@@ -246,9 +296,48 @@ onMounted(() => {
 
               <el-divider content-position="left">招新要求</el-divider>
               <p class="recruitment-text">{{ recruitment.requirements }}</p>
+
+              <div v-if="recruitment.display_status === '进行中'" class="recruitment-actions">
+                <el-button type="primary" size="small" @click="openApplyDialog(recruitment)">
+                  申请加入
+                </el-button>
+              </div>
             </el-card>
           </div>
         </el-card>
+
+        <!-- 申请弹窗 -->
+        <el-dialog
+          v-model="dialogVisible"
+          :title="`申请加入 — ${applyingRecruitmentTitle}`"
+          width="480px"
+          :close-on-click-modal="false"
+        >
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="formRules"
+            label-position="top"
+          >
+            <el-form-item label="申请理由" prop="reason">
+              <el-input
+                v-model="form.reason"
+                type="textarea"
+                :rows="4"
+                maxlength="500"
+                show-word-limit
+                placeholder="请简要说明你希望加入该社团的理由"
+              />
+            </el-form-item>
+          </el-form>
+
+          <template #footer>
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="isSubmitting" @click="handleSubmitApplication">
+              提交申请
+            </el-button>
+          </template>
+        </el-dialog>
       </template>
     </div>
   </main>
@@ -289,5 +378,10 @@ onMounted(() => {
   line-height: 1.7;
   white-space: pre-wrap;
   margin: 0;
+}
+
+.recruitment-actions {
+  margin-top: 12px;
+  text-align: right;
 }
 </style>

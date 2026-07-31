@@ -78,12 +78,7 @@ def compute_recruitment_status(recruitment):
 
     now = timezone.now()
 
-    # TODO S07: join_application 表在 S07 建立后，将 approved_count 改为
-    #   从 join_application 表查询 status='已通过' 的计数。
-    #   approved_count = JoinApplication.objects.filter(
-    #       recruitment=recruitment, status="已通过"
-    #   ).count()
-    approved_count = 0
+    approved_count = recruitment.join_applications.filter(status="已通过").count()
 
     #展示状态计算（优先级从高到低）
     if recruitment.ended_early or now >= recruitment.end_time:
@@ -118,4 +113,37 @@ def serialize_recruitment(recruitment):
         "ended_early": recruitment.ended_early,
         "display_status": display_status,
         "approved_count": approved_count,
+    }
+
+
+# ── S07：入社申请与通知序列化 ──────────────────────────────
+
+
+#将 JoinApplication 对象序列化为字典。
+def serialize_join_application(app):
+    return {
+        "id": app.id,
+        "applicant_id": app.applicant_id,
+        "applicant_name_snapshot": app.applicant_name_snapshot,
+        "applicant_major_class_snapshot": app.applicant_major_class_snapshot,
+        "club": {
+            "id": app.club.id,
+            "name": app.club.name,
+        },
+        "recruitment": {
+            "id": app.recruitment.id,
+            "title": app.recruitment.title,
+        },
+        "reason": app.reason,
+        "applied_at": app.applied_at.isoformat(),
+        "status": app.status,
+    }
+
+
+#将 Notification 对象序列化为字典。
+def serialize_notification(notification):
+    return {
+        "id": notification.id,
+        "type": notification.type,
+        "content": notification.content,
     }

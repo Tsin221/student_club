@@ -258,6 +258,19 @@ onMounted(() => {
             </el-button>
           </div>
         </el-card>
+
+        <!-- 入社申请审核入口 -->
+        <el-card class="data-card" shadow="never" style="margin-top: 20px">
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <h3 style="margin: 0; font-size: 16px">入社申请审核</h3>
+            <el-button
+              type="primary"
+              @click="emit('navigate', `/leader/clubs/${clubId}/applications`)"
+            >
+              审阅申请
+            </el-button>
+          </div>
+        </el-card>
       </template>
     </div>
   </main>

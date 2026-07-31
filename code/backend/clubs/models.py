@@ -158,3 +158,92 @@ class Recruitment(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.club.name})"
+
+
+#入社申请
+class JoinApplication(models.Model):
+
+    class Status(models.TextChoices):
+        PENDING = "待审核", "待审核"
+        APPROVED = "已通过", "已通过"
+        REJECTED = "已拒绝", "已拒绝"
+
+    id = models.BigAutoField(primary_key=True)
+    applicant = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="join_applications",
+        db_column="applicant_id",
+    )
+    applicant_name_snapshot = models.CharField(max_length=50)
+    applicant_major_class_snapshot = models.CharField(max_length=100)
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="join_applications",
+        db_column="club_id",
+    )
+    recruitment = models.ForeignKey(
+        Recruitment,
+        on_delete=models.PROTECT,
+        related_name="join_applications",
+        db_column="recruitment_id",
+    )
+    reason = models.TextField()
+    applied_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    class Meta:
+        db_table = "join_application"
+        indexes = [
+            models.Index(
+                fields=["applicant", "status"],
+                name="ja_applicant_status_idx",
+            ),
+            models.Index(
+                fields=["club", "status", "applied_at"],
+                name="ja_club_status_time_idx",
+            ),
+            models.Index(
+                fields=["recruitment", "applicant", "status"],
+                name="ja_rec_app_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.applicant.username} → {self.club.name}（{self.status}）"
+
+
+#站内通知
+class Notification(models.Model):
+
+    class Type(models.TextChoices):
+        REPLY = "有人回复了我的帖子", "有人回复了我的帖子"
+        REPORT_PROCESSED = "我的举报已经处理", "我的举报已经处理"
+        APPLICATION_REVIEWED = "我的入社申请已经审核", "我的入社申请已经审核"
+
+    id = models.BigAutoField(primary_key=True)
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="notifications",
+        db_column="recipient_id",
+    )
+    type = models.CharField(max_length=50, choices=Type.choices)
+    content = models.TextField()
+
+    class Meta:
+        db_table = "notification"
+        indexes = [
+            models.Index(
+                fields=["recipient", "type"],
+                name="notif_recipient_type_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"[{self.type}] → {self.recipient.username}"

@@ -184,6 +184,18 @@ onMounted(() => {
         >
           招新记录
         </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/applications')"
+        >
+          入社申请
+        </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/memberships')"
+        >
+          成员关系
+        </el-button>
       </div>
 
       <!-- 错误状态 -->

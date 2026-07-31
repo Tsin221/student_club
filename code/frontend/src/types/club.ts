@@ -140,3 +140,58 @@ export interface PaginatedRecruitments {
   page_size: number
   total: number
 }
+
+// ── S07 入社申请与通知 ──────────────────────────────────────
+
+export type ApplicationStatus = '待审核' | '已通过' | '已拒绝'
+
+export interface JoinApplication {
+  id: number
+  applicant_id: number
+  applicant_name_snapshot: string
+  applicant_major_class_snapshot: string
+  club: {
+    id: number
+    name: string
+  }
+  recruitment: {
+    id: number
+    title: string
+  }
+  reason: string
+  applied_at: string
+  status: ApplicationStatus
+}
+
+export interface PaginatedApplications {
+  items: JoinApplication[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface ApproveApplicationResult {
+  application: JoinApplication
+  membership: {
+    id: number
+    user_id: number
+    club_id: number
+    member_status: string
+    club_role: string
+  }
+}
+
+export type NotificationType =
+  | '有人回复了我的帖子'
+  | '我的举报已经处理'
+  | '我的入社申请已经审核'
+
+export interface Notification {
+  id: number
+  type: NotificationType
+  content: string
+}
+
+export interface NotificationsResult {
+  items: Notification[]
+}

@@ -142,6 +142,20 @@ onMounted(() => {
               </el-button>
               <el-button
                 type="primary"
+                plain
+                @click="emit('navigate', '/student/applications')"
+              >
+                我的申请
+              </el-button>
+              <el-button
+                type="primary"
+                plain
+                @click="emit('navigate', '/student/notifications')"
+              >
+                我的通知
+              </el-button>
+              <el-button
+                type="primary"
                 @click="emit('navigate', '/student/profile/edit')"
               >
                 编辑资料
