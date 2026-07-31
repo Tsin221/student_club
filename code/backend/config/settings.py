@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "core",
     "users",
+    "clubs",
 ]
 
 #中间件配置
@@ -110,3 +111,7 @@ SESSION_COOKIE_SECURE = not DEBUG
 
 #模型默认配置
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+#媒体文件配置（Logo 上传）
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"

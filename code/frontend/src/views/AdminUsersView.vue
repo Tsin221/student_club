@@ -171,6 +171,15 @@ onMounted(() => {
         <p>查看全部学生账号资料，并为指定学生重置密码。</p>
       </section>
 
+      <div style="margin-bottom: 20px; display: flex; gap: 12px">
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/clubs')"
+        >
+          社团管理
+        </el-button>
+      </div>
+
       <!-- 错误状态 -->
       <el-alert
         v-if="errorMessage"

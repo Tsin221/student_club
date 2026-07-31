@@ -129,6 +129,19 @@ onMounted(() => {
               <el-button
                 type="primary"
                 plain
+                @click="emit('navigate', '/student/clubs')"
+              >
+                社团广场
+              </el-button>
+              <el-button
+                type="primary"
+                plain
+                @click="emit('navigate', '/student/memberships')"
+              >
+                我的社团
+              </el-button>
+              <el-button
+                type="primary"
                 @click="emit('navigate', '/student/profile/edit')"
               >
                 编辑资料
