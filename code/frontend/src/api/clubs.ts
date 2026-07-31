@@ -4,6 +4,7 @@ import type {
   ClubMembership,
   CreateAnnouncementInput,
   CreateClubResult,
+  CreatePostInput,
   DeleteAnnouncementResult,
   LeaderMembersResult,
   MyMembership,
@@ -11,7 +12,10 @@ import type {
   PaginatedAnnouncements,
   PaginatedClubs,
   PaginatedMemberships,
+  PaginatedPosts,
   PaginatedRecruitments,
+  PinPostInput,
+  Post,
   Recruitment,
   UpdateAnnouncementInput,
 } from '../types/club'
@@ -860,4 +864,124 @@ export async function getAdminAnnouncements(
   }
 
   return data
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S10 帖子 API
+// ═════════════════════════════════════════════════════════════
+
+
+function isPost(value: unknown): value is Post {
+  if (typeof value !== 'object' || value === null) return false
+  const p = value as Record<string, unknown>
+  return (
+    typeof p.id === 'number'
+    && typeof p.title === 'string'
+    && typeof p.content === 'string'
+    && typeof p.club_id === 'number'
+    && typeof p.author === 'object'
+    && p.author !== null
+    && typeof p.is_pinned === 'boolean'
+    && typeof p.status === 'string'
+    && typeof p.like_count === 'number'
+    && typeof p.liked_by_me === 'boolean'
+  )
+}
+
+
+function requirePost(value: unknown): Post {
+  if (!isPost(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的帖子数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+function isPaginatedPosts(value: unknown): value is PaginatedPosts {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    Array.isArray(c.items)
+    && typeof c.page === 'number'
+    && typeof c.page_size === 'number'
+    && typeof c.total === 'number'
+  )
+}
+
+
+//GET /api/clubs/{club_id}/posts — 成员查看正常帖子列表
+export async function listPosts(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedPosts> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/clubs/${clubId}/posts?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedPosts(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的帖子列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isPost(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的帖子数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//GET /api/posts/{post_id} — 查看帖子详情
+export async function getPost(postId: number): Promise<Post> {
+  const data = await request<unknown>(
+    `/api/posts/${postId}`,
+    { method: 'GET' },
+  )
+  return requirePost(data)
+}
+
+
+//POST /api/clubs/{club_id}/posts — 发布帖子
+export async function createPost(
+  clubId: number,
+  postData: CreatePostInput,
+): Promise<Post> {
+  const result = await postJson<unknown>(
+    `/api/clubs/${clubId}/posts`,
+    postData,
+  )
+  return requirePost(result)
+}
+
+
+//PATCH /api/leader/posts/{post_id}/pin — 负责人置顶/取消置顶帖子
+export async function pinPost(
+  postId: number,
+  pinData: PinPostInput,
+): Promise<Post> {
+  const result = await patchJson<unknown>(
+    `/api/leader/posts/${postId}/pin`,
+    pinData,
+  )
+  return requirePost(result)
 }

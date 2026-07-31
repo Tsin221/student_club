@@ -237,3 +237,38 @@ export interface DeleteAnnouncementResult {
   id: number
   status: AnnouncementStatus
 }
+
+// ── S10 帖子 ──────────────────────────────────────────────────
+
+export type PostStatus = '正常' | '已删除'
+
+export interface Post {
+  id: number
+  title: string
+  content: string
+  club_id: number
+  author: {
+    id: number
+    username: string
+  }
+  is_pinned: boolean
+  status: PostStatus
+  like_count: number
+  liked_by_me: boolean
+}
+
+export interface PaginatedPosts {
+  items: Post[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface CreatePostInput {
+  title: string
+  content: string
+}
+
+export interface PinPostInput {
+  is_pinned: boolean
+}

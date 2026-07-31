@@ -297,3 +297,53 @@ class Announcement(models.Model):
 
     def __str__(self):
         return f"{self.title}（{self.club.name}）"
+
+
+# ── S10：帖子 ────────────────────────────────────────────
+
+
+class Post(models.Model):
+
+    """社团帖子 —— 发布后不可修改，用自增 ID 表示发布先后。"""
+
+    class Status(models.TextChoices):
+        NORMAL = "正常", "正常"
+        DELETED = "已删除", "已删除"
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="posts",
+        db_column="club_id",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="posts",
+        db_column="author_id",
+    )
+    is_pinned = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NORMAL,
+    )
+
+    class Meta:
+        db_table = "post"
+        indexes = [
+            models.Index(
+                fields=["club", "status", "is_pinned"],
+                name="post_club_status_pin_idx",
+            ),
+            models.Index(
+                fields=["author"],
+                name="post_author_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.title}（{self.club.name}）"

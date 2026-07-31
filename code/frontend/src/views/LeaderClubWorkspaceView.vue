@@ -9,11 +9,13 @@ import {
   getClubDetail,
   getLeaderAnnouncements,
   getLeaderMembers,
+  listPosts,
+  pinPost,
   removeMember,
   updateAnnouncement,
   updateLeaderClub,
 } from '../api/clubs'
-import type { Announcement, Club, MembershipForLeader } from '../types/club'
+import type { Announcement, Club, MembershipForLeader, Post } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -286,6 +288,48 @@ async function handleDeleteAnnouncement(announcement: Announcement) {
 }
 
 
+// ── S10 帖子管理（置顶） ──────────────────────────────────
+
+const posts = ref<Post[]>([])
+const isLoadingPosts = ref(false)
+const pinningPostId = ref<number | null>(null)
+
+
+async function loadPosts() {
+  isLoadingPosts.value = true
+  try {
+    const data = await listPosts(clubId.value)
+    posts.value = data.items
+  } catch {
+    posts.value = []
+  } finally {
+    isLoadingPosts.value = false
+  }
+}
+
+
+async function handleTogglePin(post: Post) {
+  pinningPostId.value = post.id
+  try {
+    const updated = await pinPost(post.id, { is_pinned: !post.is_pinned })
+    const idx = posts.value.findIndex((p) => p.id === post.id)
+    if (idx !== -1) posts.value[idx] = updated
+    ElMessage.success(updated.is_pinned ? '帖子已置顶' : '已取消置顶')
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError ? error.message : '操作失败',
+    )
+  } finally {
+    pinningPostId.value = null
+  }
+}
+
+
+function onTogglePin(row: unknown) {
+  handleTogglePin(row as Post)
+}
+
+
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('zh-CN')
 }
@@ -331,6 +375,7 @@ onMounted(() => {
     if (club.value) {
       loadMembers()
       loadAnnouncements()
+      loadPosts()
     }
   })
 })
@@ -560,6 +605,66 @@ onMounted(() => {
           </div>
         </el-card>
 
+        <!-- S10 帖子管理 -->
+        <el-card class="data-card" shadow="never" style="margin-top: 20px">
+          <template #header>
+            <span style="font-weight: 600">帖子管理</span>
+          </template>
+
+          <div v-loading="isLoadingPosts">
+            <template v-if="posts.length === 0 && !isLoadingPosts">
+              <el-empty description="暂无帖子" :image-size="60" />
+            </template>
+            <el-table v-else :data="posts" stripe>
+              <el-table-column label="标题" prop="title" min-width="160">
+                <template #default="{ row }">
+                  <div class="post-title-cell">
+                    <el-tag
+                      v-if="row.is_pinned && row.status === '正常'"
+                      type="warning"
+                      size="small"
+                      effect="light"
+                    >
+                      置顶
+                    </el-tag>
+                    <span>{{ row.title }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="作者" width="120">
+                <template #default="{ row }">
+                  {{ row.author.username }}
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="80">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="row.status === '正常' ? 'success' : 'info'"
+                    effect="light"
+                    size="small"
+                  >
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.status === '正常'"
+                    :type="row.is_pinned ? 'info' : 'primary'"
+                    size="small"
+                    text
+                    :loading="pinningPostId === row.id"
+                    @click="onTogglePin(row)"
+                  >
+                    {{ row.is_pinned ? '取消置顶' : '置顶' }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-card>
+
         <!-- 公告弹窗 -->
         <el-dialog
           v-model="announceDialogVisible"
@@ -611,6 +716,12 @@ onMounted(() => {
 
 <style scoped>
 .announce-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-title-cell {
   display: flex;
   align-items: center;
   gap: 8px;

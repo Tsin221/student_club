@@ -9,7 +9,7 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Recruitment
+from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, Recruitment
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
@@ -19,6 +19,7 @@ from .serializers import (
     serialize_membership_for_leader,
     serialize_my_membership,
     serialize_notification,
+    serialize_post,
     serialize_recruitment,
 )
 
@@ -2422,4 +2423,198 @@ def admin_list_announcements(request, club_id):
             total,
         ),
         message="公告列表获取成功",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S10：帖子发布、列表、详情与置顶
+# ═══════════════════════════════════════════════════════════════
+
+
+#当前在社成员分页查看正常帖子（置顶优先，同组按自增 ID 倒序）。
+def _member_list_posts(request, club_id):
+    user, _membership = require_club_member(request, club_id)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Post.objects
+        .filter(
+            club_id=club_id,
+            status=Post.Status.NORMAL,
+        )
+        .select_related("author")
+        .order_by("-is_pinned", "-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_post(p, current_user_id=user.id) for p in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="帖子列表获取成功",
+    )
+
+
+# ── GET /api/posts/{post_id} ──────────────────────────────
+
+#当前在社成员查看帖子详情。
+@require_GET
+def post_detail(request, post_id):
+    try:
+        post = Post.objects.select_related("author", "club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    #校验当前用户是目标社团的当前在社成员
+    user, _membership = require_club_member(request, post.club_id)
+
+    #已删除帖子对普通成员不可见
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="RESOURCE_DELETED",
+            message="该帖子已删除",
+            status=409,
+        )
+
+    return success_response(
+        data=serialize_post(post, current_user_id=user.id),
+        message="帖子详情获取成功",
+    )
+
+
+#当前在社成员发布帖子。
+def _member_create_post(request, club_id):
+    user, _membership = require_club_member(request, club_id)
+
+    body = _parse_json_body(request)
+
+    title = (body.get("title") or "").strip()
+    content = (body.get("content") or "").strip()
+
+    #必填字段校验
+    if not title:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="帖子标题不能为空",
+            status=400,
+        )
+    if len(title) > 255:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="帖子标题不能超过 255 字",
+            status=422,
+        )
+    if not content:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="帖子内容不能为空",
+            status=400,
+        )
+    if len(content) > 5000:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="帖子内容不能超过 5000 字",
+            status=422,
+        )
+
+    #拒绝不允许的字段（发布时不接受 is_pinned、status 等）
+    allowed_fields = {"title", "content"}
+    for key in body:
+        if key not in allowed_fields:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    post = Post.objects.create(
+        title=title,
+        content=content,
+        club_id=club_id,
+        author=user,
+    )
+
+    return success_response(
+        data=serialize_post(post, current_user_id=user.id),
+        message="帖子发布成功",
+        status=201,
+    )
+
+
+# /api/clubs/{club_id}/posts 方法分发。
+def posts_list_or_create(request, club_id):
+    if request.method == "GET":
+        return _member_list_posts(request, club_id)
+    if request.method == "POST":
+        return _member_create_post(request, club_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── PATCH /api/leader/posts/{post_id}/pin ─────────────────
+
+#负责人置顶或取消置顶本人负责社团的正常帖子。
+def leader_pin_post(request, post_id):
+    if request.method != "PATCH":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        post = Post.objects.select_related("club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    #校验当前用户是该帖子所属社团的有效负责人
+    user, _membership = require_leader_of_club(request, post.club_id)
+
+    #已删除帖子不能置顶
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="POST_DELETED",
+            message="已删除的帖子不能置顶",
+            status=409,
+        )
+
+    body = _parse_json_body(request)
+
+    if "is_pinned" not in body:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请提供 is_pinned 字段",
+            status=400,
+        )
+
+    #拒绝不允许的字段
+    for key in body:
+        if key != "is_pinned":
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许修改字段 '{key}'",
+                status=400,
+            )
+
+    post.is_pinned = bool(body["is_pinned"])
+    post.save()
+
+    return success_response(
+        data=serialize_post(post, current_user_id=user.id),
+        message="帖子置顶状态已更新",
     )

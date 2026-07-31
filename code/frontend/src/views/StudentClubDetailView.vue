@@ -4,8 +4,8 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { getClubDetail, getPublicRecruitments, listAnnouncements } from '../api/clubs'
-import type { Announcement, Club, Recruitment } from '../types/club'
+import { getClubDetail, getPublicRecruitments, listAnnouncements, listPosts } from '../api/clubs'
+import type { Announcement, Club, Post, Recruitment } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -35,6 +35,11 @@ const isLoadingRecruitments = ref(false)
 
 const announcements = ref<Announcement[]>([])
 const isLoadingAnnouncements = ref(false)
+
+// ── S10 帖子 ────────────────────────────────────────────────
+
+const posts = ref<Post[]>([])
+const isLoadingPosts = ref(false)
 
 // ── 数据加载 ──────────────────────────────────────────────
 
@@ -89,6 +94,20 @@ async function loadAnnouncements() {
     announcements.value = []
   } finally {
     isLoadingAnnouncements.value = false
+  }
+}
+
+
+async function loadPosts() {
+  if (Number.isNaN(clubId)) return
+  isLoadingPosts.value = true
+  try {
+    const data = await listPosts(clubId)
+    posts.value = data.items
+  } catch {
+    posts.value = []
+  } finally {
+    isLoadingPosts.value = false
   }
 }
 
@@ -175,6 +194,7 @@ onMounted(() => {
     if (club.value && club.value.status === 'normal') {
       loadRecruitments()
       loadAnnouncements()
+      loadPosts()
     }
   })
 })
@@ -300,6 +320,46 @@ onMounted(() => {
               </div>
               <p class="announcement-content">{{ a.content }}</p>
               <el-divider v-if="a !== announcements[announcements.length - 1]" />
+            </div>
+          </div>
+        </el-card>
+
+        <!-- S10 帖子列表 -->
+        <el-card
+          v-if="club.status === 'normal'"
+          class="profile-card"
+          shadow="never"
+          style="margin-top: 20px"
+        >
+          <template #header>
+            <span style="font-weight: 600">社团帖子</span>
+          </template>
+
+          <div v-if="isLoadingPosts" v-loading="true" style="min-height: 80px" />
+
+          <div v-else-if="posts.length === 0">
+            <el-empty description="暂无帖子" :image-size="60" />
+          </div>
+
+          <div v-else>
+            <div
+              v-for="p in posts"
+              :key="p.id"
+              class="post-item"
+            >
+              <div class="post-header">
+                <div class="post-title-row">
+                  <el-tag v-if="p.is_pinned" type="warning" size="small" effect="light">
+                    置顶
+                  </el-tag>
+                  <span class="post-title">{{ p.title }}</span>
+                </div>
+                <span class="post-meta">
+                  {{ p.author.username }}
+                </span>
+              </div>
+              <p class="post-content">{{ p.content }}</p>
+              <el-divider v-if="p !== posts[posts.length - 1]" />
             </div>
           </div>
         </el-card>
@@ -474,6 +534,41 @@ onMounted(() => {
 }
 
 .announcement-content {
+  color: #606266;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.post-item {
+  padding: 4px 0;
+}
+
+.post-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.post-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.post-meta {
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.post-content {
   color: #606266;
   line-height: 1.7;
   white-space: pre-wrap;

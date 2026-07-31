@@ -131,6 +131,19 @@ urlpatterns = [
         "api/admin/clubs/<int:club_id>/announcements",
         club_views.admin_list_announcements,
     ),
+    # ── S10：帖子发布、列表、详情与置顶 ──
+    #成员查看和发布帖子
+    path(
+        "api/clubs/<int:club_id>/posts",
+        club_views.posts_list_or_create,
+    ),
+    #帖子详情
+    path("api/posts/<int:post_id>", club_views.post_detail),
+    #负责人置顶/取消置顶帖子
+    path(
+        "api/leader/posts/<int:post_id>/pin",
+        club_views.leader_pin_post,
+    ),
 ]
 
 #开发环境媒体文件服务

@@ -167,3 +167,39 @@ def serialize_announcement(announcement):
         "is_pinned": announcement.is_pinned,
         "status": announcement.status,
     }
+
+
+# ── S10：帖子序列化 ──────────────────────────────────────
+
+
+def serialize_post(post, current_user_id=None):
+    """将 Post 对象序列化为字典。
+
+    like_count 和 liked_by_me 实时计算：
+    - S10 阶段 post_like 表尚未建立，暂返回 0／False。
+    - S12 引入 post_like 后改为从关联表实时统计。
+    """
+    like_count = 0
+    liked_by_me = False
+
+    # S12 启用后替换为：
+    # like_count = post.post_likes.count()
+    # liked_by_me = (
+    #     current_user_id is not None
+    #     and post.post_likes.filter(user_id=current_user_id).exists()
+    # )
+
+    return {
+        "id": post.id,
+        "title": post.title,
+        "content": post.content,
+        "club_id": post.club_id,
+        "author": {
+            "id": post.author.id,
+            "username": post.author.username,
+        },
+        "is_pinned": post.is_pinned,
+        "status": post.status,
+        "like_count": like_count,
+        "liked_by_me": liked_by_me,
+    }
