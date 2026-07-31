@@ -70,3 +70,52 @@ def serialize_my_membership(membership):
         "member_status": membership.member_status,
         "club_role": membership.club_role,
     }
+
+
+#计算招新的实时展示状态和已通过人数，返回 (display_status, approved_count)。
+def compute_recruitment_status(recruitment):
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    # TODO S07: join_application 表在 S07 建立后，将 approved_count 改为
+    #   从 join_application 表查询 status='已通过' 的计数。
+    #   approved_count = JoinApplication.objects.filter(
+    #       recruitment=recruitment, status="已通过"
+    #   ).count()
+    approved_count = 0
+
+    #展示状态计算（优先级从高到低）
+    if recruitment.ended_early or now >= recruitment.end_time:
+        display_status = "已结束"
+    elif approved_count >= recruitment.capacity:
+        display_status = "已满"
+    elif now < recruitment.start_time:
+        display_status = "未开始"
+    else:
+        display_status = "进行中"
+
+    return display_status, approved_count
+
+
+#将 Recruitment 对象序列化为字典。
+def serialize_recruitment(recruitment):
+    display_status, approved_count = compute_recruitment_status(recruitment)
+    return {
+        "id": recruitment.id,
+        "title": recruitment.title,
+        "introduction": recruitment.introduction,
+        "requirements": recruitment.requirements,
+        "capacity": recruitment.capacity,
+        "start_time": recruitment.start_time.isoformat(),
+        "end_time": recruitment.end_time.isoformat(),
+        "club_id": recruitment.club_id,
+        "publisher": {
+            "id": recruitment.publisher.id,
+            "username": recruitment.publisher.username,
+        },
+        "published_at": recruitment.published_at.isoformat(),
+        "ended_early": recruitment.ended_early,
+        "display_status": display_status,
+        "approved_count": approved_count,
+    }

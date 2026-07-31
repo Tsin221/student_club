@@ -235,6 +235,9 @@ onMounted(() => {
         <el-button @click="emit('navigate', '/admin/memberships')">
           成员记录
         </el-button>
+        <el-button @click="emit('navigate', '/admin/recruitments')">
+          招新记录
+        </el-button>
       </div>
 
       <!-- 错误状态 -->

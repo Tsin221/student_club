@@ -106,3 +106,37 @@ export interface PaginatedMemberships {
   page_size: number
   total: number
 }
+
+// ── S06 招新 ──────────────────────────────────────────────
+
+export type RecruitmentDisplayStatus =
+  | '未开始'
+  | '进行中'
+  | '已满'
+  | '已结束'
+
+export interface Recruitment {
+  id: number
+  title: string
+  introduction: string
+  requirements: string
+  capacity: number
+  start_time: string
+  end_time: string
+  club_id: number
+  publisher: {
+    id: number
+    username: string
+  }
+  published_at: string
+  ended_early: boolean
+  display_status: RecruitmentDisplayStatus
+  approved_count: number
+}
+
+export interface PaginatedRecruitments {
+  items: Recruitment[]
+  page: number
+  page_size: number
+  total: number
+}

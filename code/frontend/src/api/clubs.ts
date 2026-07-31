@@ -6,6 +6,8 @@ import type {
   MyMembershipsResult,
   PaginatedClubs,
   PaginatedMemberships,
+  PaginatedRecruitments,
+  Recruitment,
 } from '../types/club'
 import { ApiRequestError } from './auth'
 import {
@@ -406,4 +408,215 @@ export async function removeClubLeader(
     `/api/admin/clubs/${clubId}/leaders/${membershipId}`,
   )
   return data as ClubMembership
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S06 招新 API
+// ═════════════════════════════════════════════════════════════
+
+
+function isRecruitment(value: unknown): value is Recruitment {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.id === 'number'
+    && typeof r.title === 'string'
+    && typeof r.introduction === 'string'
+    && typeof r.requirements === 'string'
+    && typeof r.capacity === 'number'
+    && typeof r.start_time === 'string'
+    && typeof r.end_time === 'string'
+    && typeof r.club_id === 'number'
+    && typeof r.published_at === 'string'
+    && typeof r.ended_early === 'boolean'
+    && typeof r.display_status === 'string'
+    && typeof r.approved_count === 'number'
+  )
+}
+
+
+function requireRecruitment(value: unknown): Recruitment {
+  if (!isRecruitment(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的招新数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+function isPaginatedRecruitments(value: unknown): value is PaginatedRecruitments {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    Array.isArray(c.items)
+    && typeof c.page === 'number'
+    && typeof c.page_size === 'number'
+    && typeof c.total === 'number'
+  )
+}
+
+
+//GET /api/clubs/{club_id}/recruitments — 学生查看有效招新
+export async function getPublicRecruitments(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedRecruitments> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/clubs/${clubId}/recruitments?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedRecruitments(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的招新列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isRecruitment(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的招新数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//GET /api/leader/clubs/{club_id}/recruitments — 负责人查看全部招新
+export async function getLeaderRecruitments(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedRecruitments> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/leader/clubs/${clubId}/recruitments?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedRecruitments(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的招新列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isRecruitment(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的招新数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//POST /api/leader/clubs/{club_id}/recruitments — 负责人发布招新
+export async function createRecruitment(
+  clubId: number,
+  data: {
+    title: string
+    introduction: string
+    requirements: string
+    capacity: number
+    start_time: string
+    end_time: string
+  },
+): Promise<Recruitment> {
+  const result = await postJson<unknown>(
+    `/api/leader/clubs/${clubId}/recruitments`,
+    data,
+  )
+  return requireRecruitment(result)
+}
+
+
+//PATCH /api/leader/recruitments/{recruitment_id} — 负责人修改招新
+export async function updateRecruitment(
+  recruitmentId: number,
+  data: {
+    title?: string
+    introduction?: string
+    requirements?: string
+    capacity?: number
+    start_time?: string
+    end_time?: string
+  },
+): Promise<Recruitment> {
+  const result = await patchJson<unknown>(
+    `/api/leader/recruitments/${recruitmentId}`,
+    data,
+  )
+  return requireRecruitment(result)
+}
+
+
+//POST /api/leader/recruitments/{recruitment_id}/end — 负责人提前结束招新
+export async function endRecruitment(
+  recruitmentId: number,
+): Promise<Recruitment> {
+  const result = await postJson<unknown>(
+    `/api/leader/recruitments/${recruitmentId}/end`,
+    {},
+  )
+  return requireRecruitment(result)
+}
+
+
+//GET /api/admin/recruitments — 管理员查看全量招新记录
+export async function getAdminRecruitments(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedRecruitments> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/recruitments?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedRecruitments(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的招新记录格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isRecruitment(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的招新数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
 }

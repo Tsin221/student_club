@@ -49,6 +49,26 @@ urlpatterns = [
     path("api/clubs", club_views.public_list_clubs),
     #社团详情
     path("api/clubs/<int:club_id>", club_views.club_detail),
+    #公开招新列表
+    path(
+        "api/clubs/<int:club_id>/recruitments",
+        club_views.public_list_recruitments,
+    ),
+    #负责人招新管理
+    path(
+        "api/leader/clubs/<int:club_id>/recruitments",
+        club_views.leader_recruitments,
+    ),
+    path(
+        "api/leader/recruitments/<int:recruitment_id>",
+        club_views.leader_recruitment_detail,
+    ),
+    path(
+        "api/leader/recruitments/<int:recruitment_id>/end",
+        club_views.leader_end_recruitment,
+    ),
+    #管理员招新记录
+    path("api/admin/recruitments", club_views.admin_list_recruitments),
 ]
 
 #开发环境媒体文件服务

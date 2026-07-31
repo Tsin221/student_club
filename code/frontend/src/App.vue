@@ -12,7 +12,10 @@ import AdminUsersView from './views/AdminUsersView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
 import AdminClubDetailView from './views/AdminClubDetailView.vue'
 import AdminMembershipsView from './views/AdminMembershipsView.vue'
+import AdminRecruitmentsView from './views/AdminRecruitmentsView.vue'
 import LeaderClubWorkspaceView from './views/LeaderClubWorkspaceView.vue'
+import LeaderRecruitmentsView from './views/LeaderRecruitmentsView.vue'
+import StudentRecruitmentsView from './views/StudentRecruitmentsView.vue'
 
 
 const currentPath = ref(window.location.pathname)
@@ -31,6 +34,16 @@ function isAdminClubDetail(path: string): boolean {
 //负责人社团工作台匹配
 function isLeaderClubWorkspace(path: string): boolean {
   return /^\/leader\/clubs\/\d+$/.test(path)
+}
+
+//学生招新列表匹配（/student/clubs/{数字}/recruitments）
+function isStudentRecruitments(path: string): boolean {
+  return /^\/student\/clubs\/\d+\/recruitments$/.test(path)
+}
+
+//负责人招新管理匹配（/leader/clubs/{数字}/recruitments）
+function isLeaderRecruitments(path: string): boolean {
+  return /^\/leader\/clubs\/\d+\/recruitments$/.test(path)
 }
 
 const currentView = computed(() => {
@@ -52,13 +65,21 @@ const currentView = computed(() => {
       return AdminClubsView
     case '/admin/memberships':
       return AdminMembershipsView
+    case '/admin/recruitments':
+      return AdminRecruitmentsView
     case '/login':
     default: {
       if (isStudentClubDetail(path)) {
         return StudentClubDetailView
       }
+      if (isStudentRecruitments(path)) {
+        return StudentRecruitmentsView
+      }
       if (isAdminClubDetail(path)) {
         return AdminClubDetailView
+      }
+      if (isLeaderRecruitments(path)) {
+        return LeaderRecruitmentsView
       }
       if (isLeaderClubWorkspace(path)) {
         return LeaderClubWorkspaceView
@@ -87,11 +108,16 @@ function syncRoute() {
 const VALID_PATHS = [
   '/login', '/register',
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
-  '/admin/users', '/admin/clubs',
+  '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
 ]
 
 function isValidPath(path: string): boolean {
-  return VALID_PATHS.includes(path) || isStudentClubDetail(path) || isAdminClubDetail(path) || isLeaderClubWorkspace(path)
+  return VALID_PATHS.includes(path)
+    || isStudentClubDetail(path)
+    || isStudentRecruitments(path)
+    || isAdminClubDetail(path)
+    || isLeaderRecruitments(path)
+    || isLeaderClubWorkspace(path)
 }
 
 

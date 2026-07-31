@@ -178,6 +178,12 @@ onMounted(() => {
         >
           社团管理
         </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/recruitments')"
+        >
+          招新记录
+        </el-button>
       </div>
 
       <!-- 错误状态 -->

@@ -99,6 +99,15 @@ onMounted(() => {
         <p>查看平台所有学生与社团的成员关系记录。</p>
       </section>
 
+      <div style="margin-bottom: 20px; display: flex; gap: 12px">
+        <el-button @click="emit('navigate', '/admin/clubs')">
+          社团管理
+        </el-button>
+        <el-button @click="emit('navigate', '/admin/recruitments')">
+          招新记录
+        </el-button>
+      </div>
+
       <el-alert
         v-if="errorMessage"
         type="error"

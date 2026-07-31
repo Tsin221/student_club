@@ -9,12 +9,13 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Club, ClubMembership
+from .models import Club, ClubMembership, Recruitment
 from .serializers import (
     serialize_club,
     serialize_membership_for_admin,
     serialize_membership_for_leader,
     serialize_my_membership,
+    serialize_recruitment,
 )
 
 
@@ -1055,4 +1056,475 @@ def admin_club_detail(request, club_id):
         code="INVALID_REQUEST",
         message="不支持的请求方法",
         status=405,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S06：招新发布与公开查看
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── 辅助：查找招新所属社团的当前有效负责人 ──────────────────
+
+#校验当前用户是招新所属社团的有效负责人。
+#通过则返回 (user, membership, recruitment)。
+def require_leader_of_recruitment(request, recruitment_id):
+    try:
+        recruitment = Recruitment.objects.select_related("club", "publisher").get(
+            id=recruitment_id,
+        )
+    except Recruitment.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="招新信息不存在",
+            status=404,
+        )
+
+    user, _membership = require_leader_of_club(request, recruitment.club_id)
+    return user, _membership, recruitment
+
+
+# ── GET /api/clubs/{club_id}/recruitments ─────────────────────
+
+#学生/管理员查看社团有效招新（只返回正常社团+未结束招新）。
+@require_GET
+def public_list_recruitments(request, club_id):
+    user = require_student_or_admin(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    #非管理员只能看正常社团
+    user_model = get_user_model()
+    if user.platform_role != user_model.PlatformRole.ADMIN:
+        if club.status != Club.Status.ACTIVE:
+            raise ApiError(
+                code="RESOURCE_NOT_FOUND",
+                message="社团不存在",
+                status=404,
+            )
+
+    page, page_size = parse_pagination(request)
+
+    #只返回正常社团且未结束的招新；已结束的判断依赖 ended_early 和 end_time
+    from django.utils import timezone
+    now = timezone.now()
+    queryset = (
+        Recruitment.objects
+        .filter(
+            club=club,
+            club__status=Club.Status.ACTIVE,
+            ended_early=False,
+            end_time__gte=now,
+        )
+        .select_related("publisher")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_recruitment(r) for r in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="招新列表获取成功",
+    )
+
+
+# ── GET /api/leader/clubs/{club_id}/recruitments ──────────────
+# ── POST /api/leader/clubs/{club_id}/recruitments ─────────────
+
+#负责人招新列表（全部，含已结束）。
+def _leader_list_recruitments(request, club_id):
+    require_leader_of_club(request, club_id)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Recruitment.objects
+        .filter(club_id=club_id)
+        .select_related("publisher")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_recruitment(r) for r in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="招新列表获取成功",
+    )
+
+
+#负责人发布招新。
+def _leader_create_recruitment(request, club_id):
+    user, _membership = require_leader_of_club(request, club_id)
+
+    body = _parse_json_body(request)
+
+    title = (body.get("title") or "").strip()
+    introduction = (body.get("introduction") or "").strip()
+    requirements = (body.get("requirements") or "").strip()
+
+    #必填字段校验
+    if not title:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="招新标题不能为空",
+            status=400,
+        )
+    if len(title) > 200:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="招新标题不能超过 200 字",
+            status=422,
+        )
+    if not introduction:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="招新简介不能为空",
+            status=400,
+        )
+    if not requirements:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="招新要求不能为空",
+            status=400,
+        )
+
+    #capacity 校验
+    capacity = body.get("capacity")
+    if capacity is None:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="招新人数不能为空",
+            status=400,
+        )
+    try:
+        capacity = int(capacity)
+    except (TypeError, ValueError):
+        raise ApiError(
+            code="INVALID_CAPACITY",
+            message="招新人数必须是整数",
+            status=422,
+        )
+    if capacity <= 0:
+        raise ApiError(
+            code="INVALID_CAPACITY",
+            message="招新人数必须大于 0",
+            status=422,
+        )
+
+    #时间校验
+    from django.utils import timezone
+    from datetime import datetime
+
+    start_time_str = (body.get("start_time") or "").strip()
+    end_time_str = (body.get("end_time") or "").strip()
+
+    if not start_time_str:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="开始时间不能为空",
+            status=400,
+        )
+    if not end_time_str:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="结束时间不能为空",
+            status=400,
+        )
+
+    try:
+        start_time = datetime.fromisoformat(start_time_str)
+        end_time = datetime.fromisoformat(end_time_str)
+    except (ValueError, TypeError):
+        raise ApiError(
+            code="INVALID_TIME_RANGE",
+            message="时间格式不正确",
+            status=422,
+        )
+
+    if start_time >= end_time:
+        raise ApiError(
+            code="INVALID_TIME_RANGE",
+            message="开始时间必须早于结束时间",
+            status=422,
+        )
+
+    recruitment = Recruitment.objects.create(
+        title=title,
+        introduction=introduction,
+        requirements=requirements,
+        capacity=capacity,
+        start_time=start_time,
+        end_time=end_time,
+        club_id=club_id,
+        publisher=user,
+    )
+
+    return success_response(
+        data=serialize_recruitment(recruitment),
+        message="招新发布成功",
+        status=201,
+    )
+
+
+# /api/leader/clubs/{club_id}/recruitments 方法分发。
+def leader_recruitments(request, club_id):
+    if request.method == "GET":
+        return _leader_list_recruitments(request, club_id)
+    if request.method == "POST":
+        return _leader_create_recruitment(request, club_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── PATCH /api/leader/recruitments/{recruitment_id} ────────────
+
+#负责人修改未结束的招新。
+def _leader_update_recruitment(request, recruitment_id):
+    _user, _membership, recruitment = require_leader_of_recruitment(
+        request, recruitment_id
+    )
+
+    #已结束的招新不能修改
+    from django.utils import timezone
+    now = timezone.now()
+    if recruitment.ended_early or now >= recruitment.end_time:
+        raise ApiError(
+            code="RECRUITMENT_ENDED",
+            message="已结束的招新不能修改",
+            status=409,
+        )
+
+    #校验所属社团仍为正常
+    if recruitment.club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    ALLOWED_FIELDS = {"title", "introduction", "requirements", "capacity", "start_time", "end_time"}
+    body = _parse_json_body(request)
+
+    #拒绝不允许的字段
+    for key in body:
+        if key not in ALLOWED_FIELDS:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许修改字段 '{key}'",
+                status=400,
+            )
+
+    if not body:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请至少提供一个要修改的字段",
+            status=400,
+        )
+
+    #逐字段校验和更新
+    if "title" in body:
+        title = (body["title"] or "").strip()
+        if not title:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="招新标题不能为空",
+                status=400,
+            )
+        if len(title) > 200:
+            raise ApiError(
+                code="VALIDATION_ERROR",
+                message="招新标题不能超过 200 字",
+                status=422,
+            )
+        recruitment.title = title
+
+    if "introduction" in body:
+        introduction = (body["introduction"] or "").strip()
+        if not introduction:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="招新简介不能为空",
+                status=400,
+            )
+        recruitment.introduction = introduction
+
+    if "requirements" in body:
+        requirements = (body["requirements"] or "").strip()
+        if not requirements:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="招新要求不能为空",
+                status=400,
+            )
+        recruitment.requirements = requirements
+
+    if "capacity" in body:
+        try:
+            capacity = int(body["capacity"])
+        except (TypeError, ValueError):
+            raise ApiError(
+                code="INVALID_CAPACITY",
+                message="招新人数必须是整数",
+                status=422,
+            )
+        if capacity <= 0:
+            raise ApiError(
+                code="INVALID_CAPACITY",
+                message="招新人数必须大于 0",
+                status=422,
+            )
+
+        # TODO S07: 将 approved_count 改为真实查询后，此处校验
+        #   capacity >= approved_count
+        #   if capacity < approved_count:
+        #       raise ApiError(
+        #           code="CAPACITY_BELOW_APPROVED",
+        #           message="招新人数不能低于已通过人数",
+        #           status=422,
+        #       )
+
+        recruitment.capacity = capacity
+
+    if "start_time" in body or "end_time" in body:
+        from datetime import datetime
+
+        start_time_str = (body.get("start_time") or "").strip()
+        end_time_str = (body.get("end_time") or "").strip()
+
+        #保留未修改的字段当前值
+        current_start = recruitment.start_time
+        current_end = recruitment.end_time
+
+        if start_time_str:
+            try:
+                current_start = datetime.fromisoformat(start_time_str)
+            except (ValueError, TypeError):
+                raise ApiError(
+                    code="INVALID_TIME_RANGE",
+                    message="时间格式不正确",
+                    status=422,
+                )
+
+        if end_time_str:
+            try:
+                current_end = datetime.fromisoformat(end_time_str)
+            except (ValueError, TypeError):
+                raise ApiError(
+                    code="INVALID_TIME_RANGE",
+                    message="时间格式不正确",
+                    status=422,
+                )
+
+        if current_start >= current_end:
+            raise ApiError(
+                code="INVALID_TIME_RANGE",
+                message="开始时间必须早于结束时间",
+                status=422,
+            )
+
+        recruitment.start_time = current_start
+        recruitment.end_time = current_end
+
+    recruitment.save()
+
+    return success_response(
+        data=serialize_recruitment(recruitment),
+        message="招新修改成功",
+    )
+
+
+# /api/leader/recruitments/{recruitment_id} 方法分发。
+def leader_recruitment_detail(request, recruitment_id):
+    if request.method == "PATCH":
+        return _leader_update_recruitment(request, recruitment_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── POST /api/leader/recruitments/{recruitment_id}/end ────────
+
+#负责人提前结束招新。
+def leader_end_recruitment(request, recruitment_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    _user, _membership, recruitment = require_leader_of_recruitment(
+        request, recruitment_id
+    )
+
+    #已结束的不能重复结束
+    if recruitment.ended_early:
+        raise ApiError(
+            code="RECRUITMENT_ENDED",
+            message="该招新已经提前结束",
+            status=409,
+        )
+
+    from django.utils import timezone
+    if timezone.now() >= recruitment.end_time:
+        raise ApiError(
+            code="RECRUITMENT_ENDED",
+            message="该招新已到期结束",
+            status=409,
+        )
+
+    recruitment.ended_early = True
+    recruitment.save()
+
+    return success_response(
+        data=serialize_recruitment(recruitment),
+        message="招新已提前结束",
+    )
+
+
+# ── GET /api/admin/recruitments ────────────────────────────────
+
+#管理员查看全量招新记录。
+@require_GET
+def admin_list_recruitments(request):
+    require_admin(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Recruitment.objects
+        .select_related("club", "publisher")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_recruitment(r) for r in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="招新记录列表获取成功",
     )

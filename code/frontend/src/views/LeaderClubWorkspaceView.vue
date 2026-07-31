@@ -245,6 +245,19 @@ onMounted(() => {
             </el-table>
           </div>
         </el-card>
+
+        <!-- 招新管理入口 -->
+        <el-card class="data-card" shadow="never" style="margin-top: 20px">
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <h3 style="margin: 0; font-size: 16px">招新管理</h3>
+            <el-button
+              type="primary"
+              @click="emit('navigate', `/leader/clubs/${clubId}/recruitments`)"
+            >
+              管理招新
+            </el-button>
+          </div>
+        </el-card>
       </template>
     </div>
   </main>

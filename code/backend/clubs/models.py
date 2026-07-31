@@ -116,3 +116,45 @@ class ClubMembership(models.Model):
 
     def __str__(self):
         return f"{self.user.username} → {self.club.name} ({self.club_role})"
+
+
+#招新信息
+class Recruitment(models.Model):
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    introduction = models.TextField()
+    requirements = models.TextField()
+    capacity = models.PositiveIntegerField()
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="recruitments",
+        db_column="club_id",
+    )
+    publisher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="published_recruitments",
+        db_column="publisher_id",
+    )
+    published_at = models.DateTimeField(auto_now_add=True)
+    ended_early = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "recruitment"
+        indexes = [
+            models.Index(
+                fields=["club", "ended_early", "start_time", "end_time"],
+                name="recruit_club_early_time_idx",
+            ),
+            models.Index(
+                fields=["publisher"],
+                name="recruit_publisher_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.club.name})"

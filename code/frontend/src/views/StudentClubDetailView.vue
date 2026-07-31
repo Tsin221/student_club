@@ -2,8 +2,8 @@
 import { onMounted, ref } from 'vue'
 
 import { ApiRequestError } from '../api/auth'
-import { getClubDetail } from '../api/clubs'
-import type { Club } from '../types/club'
+import { getClubDetail, getPublicRecruitments } from '../api/clubs'
+import type { Club, Recruitment } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -13,7 +13,6 @@ const emit = defineEmits<{
 //从 URL 路径解析 clubId
 function parseClubId(): number {
   const parts = window.location.pathname.split('/')
-  // /student/clubs/123 → parts = ['', 'student', 'clubs', '123']
   const id = Number(parts[parts.length - 1])
   return Number.isFinite(id) && id > 0 ? id : NaN
 }
@@ -24,6 +23,11 @@ const isLoading = ref(true)
 const errorMessage = ref('')
 const club = ref<Club | null>(null)
 const clubId = parseClubId()
+
+// ── 招新 ──────────────────────────────────────────────────
+
+const recruitments = ref<Recruitment[]>([])
+const isLoadingRecruitments = ref(false)
 
 // ── 数据加载 ──────────────────────────────────────────────
 
@@ -54,6 +58,20 @@ async function loadDetail() {
 }
 
 
+async function loadRecruitments() {
+  if (Number.isNaN(clubId)) return
+  isLoadingRecruitments.value = true
+  try {
+    const data = await getPublicRecruitments(clubId)
+    recruitments.value = data.items
+  } catch {
+    recruitments.value = []
+  } finally {
+    isLoadingRecruitments.value = false
+  }
+}
+
+
 function goBack() {
   emit('navigate', '/student/clubs')
 }
@@ -67,8 +85,28 @@ function formatDate(isoString: string): string {
 }
 
 
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('zh-CN')
+}
+
+
+function statusTagType(status: string): 'info' | 'success' | 'warning' | 'danger' {
+  switch (status) {
+    case '未开始': return 'info'
+    case '进行中': return 'success'
+    case '已满': return 'warning'
+    case '已结束': return 'danger'
+    default: return 'info'
+  }
+}
+
+
 onMounted(() => {
-  loadDetail()
+  loadDetail().then(() => {
+    if (club.value && club.value.status === 'normal') {
+      loadRecruitments()
+    }
+  })
 })
 </script>
 
@@ -155,6 +193,62 @@ onMounted(() => {
             {{ club.introduction }}
           </p>
         </el-card>
+
+        <el-card
+          v-if="club.status === 'normal'"
+          class="profile-card"
+          shadow="never"
+          style="margin-top: 20px"
+        >
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span style="font-weight: 600">招新信息</span>
+            </div>
+          </template>
+
+          <div v-if="isLoadingRecruitments" v-loading="true" style="min-height: 80px" />
+
+          <div v-else-if="recruitments.length === 0">
+            <el-empty description="该社团暂无有效招新" :image-size="60" />
+          </div>
+
+          <div v-else>
+            <el-card
+              v-for="recruitment in recruitments"
+              :key="recruitment.id"
+              class="recruitment-inline-card"
+              shadow="hover"
+            >
+              <div class="recruitment-inline-header">
+                <span class="recruitment-inline-title">{{ recruitment.title }}</span>
+                <el-tag :type="statusTagType(recruitment.display_status)" size="small">
+                  {{ recruitment.display_status }}
+                </el-tag>
+              </div>
+
+              <el-descriptions :column="2" border size="small" style="margin-top: 12px">
+                <el-descriptions-item label="招新人数">
+                  {{ recruitment.approved_count }} / {{ recruitment.capacity }}
+                </el-descriptions-item>
+                <el-descriptions-item label="发布人">
+                  {{ recruitment.publisher.username }}
+                </el-descriptions-item>
+                <el-descriptions-item label="开始时间">
+                  {{ formatDateTime(recruitment.start_time) }}
+                </el-descriptions-item>
+                <el-descriptions-item label="结束时间">
+                  {{ formatDateTime(recruitment.end_time) }}
+                </el-descriptions-item>
+              </el-descriptions>
+
+              <el-divider content-position="left">招新简介</el-divider>
+              <p class="recruitment-text">{{ recruitment.introduction }}</p>
+
+              <el-divider content-position="left">招新要求</el-divider>
+              <p class="recruitment-text">{{ recruitment.requirements }}</p>
+            </el-card>
+          </div>
+        </el-card>
       </template>
     </div>
   </main>
@@ -173,5 +267,27 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.recruitment-inline-card {
+  margin-bottom: 12px;
+}
+
+.recruitment-inline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.recruitment-inline-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.recruitment-text {
+  color: #606266;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  margin: 0;
 }
 </style>
