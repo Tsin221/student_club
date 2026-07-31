@@ -5,6 +5,7 @@ import type {
   CreateAnnouncementInput,
   CreateClubResult,
   CreatePostInput,
+  CreateReplyInput,
   DeleteAnnouncementResult,
   LeaderMembersResult,
   MyMembership,
@@ -14,9 +15,11 @@ import type {
   PaginatedMemberships,
   PaginatedPosts,
   PaginatedRecruitments,
+  PaginatedReplies,
   PinPostInput,
   Post,
   Recruitment,
+  Reply,
   UpdateAnnouncementInput,
 } from '../types/club'
 import { ApiRequestError } from './auth'
@@ -984,4 +987,97 @@ export async function pinPost(
     pinData,
   )
   return requirePost(result)
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S11 帖子回复 API
+// ═════════════════════════════════════════════════════════════
+
+
+function isReply(value: unknown): value is Reply {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.id === 'number'
+    && typeof r.content === 'string'
+    && typeof r.post_id === 'number'
+    && typeof r.author === 'object'
+    && r.author !== null
+    && typeof r.status === 'string'
+  )
+}
+
+
+function requireReply(value: unknown): Reply {
+  if (!isReply(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的回复数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+function isPaginatedReplies(value: unknown): value is PaginatedReplies {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    Array.isArray(c.items)
+    && typeof c.page === 'number'
+    && typeof c.page_size === 'number'
+    && typeof c.total === 'number'
+  )
+}
+
+
+//GET /api/posts/{post_id}/replies — 查看回复列表
+export async function listReplies(
+  postId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedReplies> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/posts/${postId}/replies?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedReplies(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的回复列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isReply(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的回复数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//POST /api/posts/{post_id}/replies — 发布回复
+export async function createReply(
+  postId: number,
+  replyData: CreateReplyInput,
+): Promise<Reply> {
+  const result = await postJson<unknown>(
+    `/api/posts/${postId}/replies`,
+    replyData,
+  )
+  return requireReply(result)
 }

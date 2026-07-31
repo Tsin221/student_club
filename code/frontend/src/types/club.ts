@@ -272,3 +272,29 @@ export interface CreatePostInput {
 export interface PinPostInput {
   is_pinned: boolean
 }
+
+// ── S11 帖子回复 ──────────────────────────────────────────────
+
+export type ReplyStatus = '正常' | '已删除'
+
+export interface Reply {
+  id: number
+  content: string
+  post_id: number
+  author: {
+    id: number
+    username: string
+  }
+  status: ReplyStatus
+}
+
+export interface PaginatedReplies {
+  items: Reply[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface CreateReplyInput {
+  content: string
+}

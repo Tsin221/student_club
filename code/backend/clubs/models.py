@@ -347,3 +347,51 @@ class Post(models.Model):
 
     def __str__(self):
         return f"{self.title}（{self.club.name}）"
+
+
+# ── S11：帖子回复 ────────────────────────────────────────────
+
+
+class Reply(models.Model):
+
+    """帖子回复 —— 只直接回复帖子，不支持多层回复。"""
+
+    class Status(models.TextChoices):
+        NORMAL = "正常", "正常"
+        DELETED = "已删除", "已删除"
+
+    id = models.BigAutoField(primary_key=True)
+    content = models.TextField()
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.PROTECT,
+        related_name="replies",
+        db_column="post_id",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="replies",
+        db_column="author_id",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NORMAL,
+    )
+
+    class Meta:
+        db_table = "reply"
+        indexes = [
+            models.Index(
+                fields=["post", "status"],
+                name="reply_post_status_idx",
+            ),
+            models.Index(
+                fields=["author"],
+                name="reply_author_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"回复 #{self.id} → 帖子 #{self.post_id}"

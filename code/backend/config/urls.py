@@ -144,6 +144,12 @@ urlpatterns = [
         "api/leader/posts/<int:post_id>/pin",
         club_views.leader_pin_post,
     ),
+    # ── S11：帖子回复 ──
+    #成员查看和发布回复
+    path(
+        "api/posts/<int:post_id>/replies",
+        club_views.replies_list_or_create,
+    ),
 ]
 
 #开发环境媒体文件服务

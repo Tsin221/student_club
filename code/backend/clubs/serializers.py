@@ -169,7 +169,21 @@ def serialize_announcement(announcement):
     }
 
 
-# ── S10：帖子序列化 ──────────────────────────────────────
+# ── S11：帖子回复序列化 ──────────────────────────────────────
+
+
+def serialize_reply(reply):
+    """将 Reply 对象序列化为字典。"""
+    return {
+        "id": reply.id,
+        "content": reply.content,
+        "post_id": reply.post_id,
+        "author": {
+            "id": reply.author.id,
+            "username": reply.author.username,
+        },
+        "status": reply.status,
+    }
 
 
 def serialize_post(post, current_user_id=None):

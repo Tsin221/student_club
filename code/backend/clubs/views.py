@@ -9,7 +9,7 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, Recruitment
+from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, Recruitment, Reply
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
@@ -21,6 +21,7 @@ from .serializers import (
     serialize_notification,
     serialize_post,
     serialize_recruitment,
+    serialize_reply,
 )
 
 
@@ -2617,4 +2618,162 @@ def leader_pin_post(request, post_id):
     return success_response(
         data=serialize_post(post, current_user_id=user.id),
         message="帖子置顶状态已更新",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S11：帖子回复与作者通知
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── GET /api/posts/{post_id}/replies ──────────────────────
+
+#当前在社成员查看帖子的正常回复（按自增 ID 正序，即发布先后）。
+@require_GET
+def list_replies(request, post_id):
+    try:
+        post = Post.objects.select_related("club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    #校验当前用户是目标社团的当前在社成员
+    user, _membership = require_club_member(request, post.club_id)
+
+    #已删除帖子对普通成员不可见
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="RESOURCE_DELETED",
+            message="该帖子已删除",
+            status=409,
+        )
+
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Reply.objects
+        .filter(
+            post=post,
+            status=Reply.Status.NORMAL,
+        )
+        .select_related("author")
+        .order_by("id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_reply(r) for r in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="回复列表获取成功",
+    )
+
+
+# ── POST /api/posts/{post_id}/replies ─────────────────────
+
+#当前在社成员回复帖子，帖子作者收到通知。
+def create_reply(request, post_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        post = Post.objects.select_related("club", "author").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    #校验当前用户是目标社团的当前在社成员
+    user, _membership = require_club_member(request, post.club_id)
+
+    #已删除帖子不能回复
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="POST_DELETED",
+            message="已删除的帖子不能回复",
+            status=409,
+        )
+
+    body = _parse_json_body(request)
+
+    content = (body.get("content") or "").strip()
+
+    if not content:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="回复内容不能为空",
+            status=400,
+        )
+    if len(content) > 1000:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="回复内容不能超过 1000 字",
+            status=422,
+        )
+
+    #拒绝不允许的字段
+    for key in body:
+        if key != "content":
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    #事务中创建回复和通知
+    try:
+        with transaction.atomic():
+            reply = Reply.objects.create(
+                content=content,
+                post=post,
+                author=user,
+            )
+
+            #作者回复自己的帖子时不发通知
+            if post.author_id != user.id:
+                notification_content = (
+                    f"你在社团「{post.club.name}」的帖子「{post.title}」收到了一条新回复。"
+                )
+                Notification.objects.create(
+                    recipient=post.author,
+                    type=Notification.Type.REPLY,
+                    content=notification_content,
+                )
+    except IntegrityError as error:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="操作失败，请稍后重试",
+            status=500,
+        ) from error
+
+    return success_response(
+        data=serialize_reply(reply),
+        message="回复发布成功",
+        status=201,
+    )
+
+
+# /api/posts/{post_id}/replies 方法分发。
+def replies_list_or_create(request, post_id):
+    if request.method == "GET":
+        return list_replies(request, post_id)
+    if request.method == "POST":
+        return create_reply(request, post_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
     )

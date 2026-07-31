@@ -4,8 +4,8 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { getClubDetail, getPublicRecruitments, listAnnouncements, listPosts } from '../api/clubs'
-import type { Announcement, Club, Post, Recruitment } from '../types/club'
+import { createPost, createReply, getClubDetail, getPublicRecruitments, listAnnouncements, listPosts, listReplies } from '../api/clubs'
+import type { Announcement, Club, Post, Recruitment, Reply } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -40,6 +40,36 @@ const isLoadingAnnouncements = ref(false)
 
 const posts = ref<Post[]>([])
 const isLoadingPosts = ref(false)
+
+//发布帖子弹窗
+const showPostDialog = ref(false)
+const postFormRef = ref<FormInstance>()
+const postForm = reactive({
+  title: '',
+  content: '',
+})
+const isSubmittingPost = ref(false)
+const postFormRules: FormRules<typeof postForm> = {
+  title: [
+    { required: true, message: '请输入帖子标题', trigger: 'blur' },
+    { max: 255, message: '标题不能超过 255 字', trigger: 'blur' },
+  ],
+  content: [
+    { required: true, message: '请输入帖子内容', trigger: 'blur' },
+    { max: 5000, message: '内容不能超过 5000 字', trigger: 'blur' },
+  ],
+}
+
+// ── S11 回复 ────────────────────────────────────────────────
+
+//每个帖子的回复列表和加载状态
+const repliesMap = ref<Record<number, Reply[]>>({})
+const isLoadingRepliesMap = ref<Record<number, boolean>>({})
+//每个帖子的回复展开状态
+const expandedPosts = ref<Set<number>>(new Set())
+//回复表单
+const replyFormContent = ref<Record<number, string>>({})
+const isSubmittingReply = ref<Record<number, boolean>>({})
 
 // ── 数据加载 ──────────────────────────────────────────────
 
@@ -108,6 +138,89 @@ async function loadPosts() {
     posts.value = []
   } finally {
     isLoadingPosts.value = false
+  }
+}
+
+
+async function handleCreatePost() {
+  const valid = await postFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  isSubmittingPost.value = true
+  try {
+    await createPost(clubId, {
+      title: postForm.title.trim(),
+      content: postForm.content.trim(),
+    })
+    ElMessage.success('帖子发布成功')
+    showPostDialog.value = false
+    postForm.title = ''
+    postForm.content = ''
+    await loadPosts()
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('发布失败，请稍后重试')
+    }
+  } finally {
+    isSubmittingPost.value = false
+  }
+}
+
+
+// ── S11 回复 ──────────────────────────────────────────────
+
+function toggleReplies(postId: number) {
+  if (expandedPosts.value.has(postId)) {
+    expandedPosts.value.delete(postId)
+  } else {
+    expandedPosts.value.add(postId)
+    //首次展开时加载回复
+    if (!repliesMap.value[postId]) {
+      loadRepliesForPost(postId)
+    }
+  }
+  //触发响应式更新
+  expandedPosts.value = new Set(expandedPosts.value)
+}
+
+
+async function loadRepliesForPost(postId: number) {
+  isLoadingRepliesMap.value = { ...isLoadingRepliesMap.value, [postId]: true }
+  try {
+    const data = await listReplies(postId)
+    repliesMap.value = { ...repliesMap.value, [postId]: data.items }
+  } catch {
+    repliesMap.value = { ...repliesMap.value, [postId]: [] }
+  } finally {
+    isLoadingRepliesMap.value = { ...isLoadingRepliesMap.value, [postId]: false }
+  }
+}
+
+
+async function handleCreateReply(postId: number) {
+  const content = (replyFormContent.value[postId] || '').trim()
+  if (!content) {
+    ElMessage.warning('回复内容不能为空')
+    return
+  }
+
+  isSubmittingReply.value = { ...isSubmittingReply.value, [postId]: true }
+  try {
+    await createReply(postId, { content })
+    ElMessage.success('回复成功')
+    replyFormContent.value = { ...replyFormContent.value, [postId]: '' }
+    //重新加载该帖子的回复
+    await loadRepliesForPost(postId)
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('回复失败，请稍后重试')
+    }
+  } finally {
+    isSubmittingReply.value = { ...isSubmittingReply.value, [postId]: false }
   }
 }
 
@@ -332,7 +445,12 @@ onMounted(() => {
           style="margin-top: 20px"
         >
           <template #header>
-            <span style="font-weight: 600">社团帖子</span>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span style="font-weight: 600">社团帖子</span>
+              <el-button type="primary" size="small" @click="showPostDialog = true">
+                发布帖子
+              </el-button>
+            </div>
           </template>
 
           <div v-if="isLoadingPosts" v-loading="true" style="min-height: 80px" />
@@ -359,6 +477,63 @@ onMounted(() => {
                 </span>
               </div>
               <p class="post-content">{{ p.content }}</p>
+
+              <!-- S11 回复区域 -->
+              <div class="post-replies-section">
+                <el-button
+                  text
+                  size="small"
+                  type="primary"
+                  @click="toggleReplies(p.id)"
+                >
+                  {{ expandedPosts.has(p.id) ? '收起回复' : '查看回复' }}
+                </el-button>
+
+                <div v-if="expandedPosts.has(p.id)" class="replies-container">
+                  <!-- 回复列表 -->
+                  <div v-if="isLoadingRepliesMap[p.id]" v-loading="true" style="min-height: 60px" />
+
+                  <div v-else-if="!repliesMap[p.id] || repliesMap[p.id].length === 0" class="replies-empty">
+                    暂无回复
+                  </div>
+
+                  <div v-else class="replies-list">
+                    <div
+                      v-for="reply in repliesMap[p.id]"
+                      :key="reply.id"
+                      class="reply-item"
+                    >
+                      <span class="reply-author">{{ reply.author.username }}</span>
+                      <span class="reply-content">{{ reply.content }}</span>
+                    </div>
+                  </div>
+
+                  <!-- 回复表单 -->
+                  <div class="reply-form">
+                    <el-input
+                      :model-value="replyFormContent[p.id] || ''"
+                      type="textarea"
+                      :rows="2"
+                      maxlength="1000"
+                      show-word-limit
+                      placeholder="写下你的回复…"
+                      @update:model-value="(val: string) => {
+                        replyFormContent = { ...replyFormContent, [p.id]: val }
+                      }"
+                    />
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :loading="isSubmittingReply[p.id]"
+                      style="margin-top: 8px"
+                      @click="handleCreateReply(p.id)"
+                    >
+                      发表回复
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+
               <el-divider v-if="p !== posts[posts.length - 1]" />
             </div>
           </div>
@@ -455,6 +630,47 @@ onMounted(() => {
             <el-button @click="dialogVisible = false">取消</el-button>
             <el-button type="primary" :loading="isSubmitting" @click="handleSubmitApplication">
               提交申请
+            </el-button>
+          </template>
+        </el-dialog>
+
+        <!-- 发布帖子弹窗 -->
+        <el-dialog
+          v-model="showPostDialog"
+          title="发布帖子"
+          width="520px"
+          :close-on-click-modal="false"
+        >
+          <el-form
+            ref="postFormRef"
+            :model="postForm"
+            :rules="postFormRules"
+            label-position="top"
+          >
+            <el-form-item label="帖子标题" prop="title">
+              <el-input
+                v-model="postForm.title"
+                maxlength="255"
+                show-word-limit
+                placeholder="请输入帖子标题"
+              />
+            </el-form-item>
+            <el-form-item label="帖子内容" prop="content">
+              <el-input
+                v-model="postForm.content"
+                type="textarea"
+                :rows="5"
+                maxlength="5000"
+                show-word-limit
+                placeholder="请输入帖子内容"
+              />
+            </el-form-item>
+          </el-form>
+
+          <template #footer>
+            <el-button @click="showPostDialog = false">取消</el-button>
+            <el-button type="primary" :loading="isSubmittingPost" @click="handleCreatePost">
+              发布
             </el-button>
           </template>
         </el-dialog>
@@ -573,5 +789,55 @@ onMounted(() => {
   line-height: 1.7;
   white-space: pre-wrap;
   margin: 0;
+}
+
+.post-replies-section {
+  margin-top: 10px;
+}
+
+.replies-container {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fafbfc;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+.replies-empty {
+  color: #909399;
+  font-size: 13px;
+  padding: 12px 0;
+  text-align: center;
+}
+
+.replies-list {
+  margin-bottom: 10px;
+}
+
+.reply-item {
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.reply-item:last-child {
+  border-bottom: none;
+}
+
+.reply-author {
+  font-weight: 600;
+  font-size: 13px;
+  color: #303133;
+  margin-right: 8px;
+}
+
+.reply-content {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.reply-form {
+  margin-top: 8px;
 }
 </style>
