@@ -79,3 +79,30 @@ export interface CreateClubResult {
 export interface MyMembershipsResult {
   items: MyMembership[]
 }
+
+export interface MembershipForLeader {
+  id: number
+  user: {
+    id: number
+    username: string
+    name: string
+    phone: string
+    major_class: string
+    grade: string
+    account_status: 'active' | 'disabled'
+  }
+  club_id: number
+  member_status: MemberStatus
+  club_role: ClubRole
+}
+
+export interface LeaderMembersResult {
+  items: MembershipForLeader[]
+}
+
+export interface PaginatedMemberships {
+  items: ClubMembership[]
+  page: number
+  page_size: number
+  total: number
+}

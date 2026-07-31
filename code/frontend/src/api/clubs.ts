@@ -1,8 +1,11 @@
 import type {
   Club,
+  ClubMembership,
   CreateClubResult,
+  LeaderMembersResult,
   MyMembershipsResult,
   PaginatedClubs,
+  PaginatedMemberships,
 } from '../types/club'
 import { ApiRequestError } from './auth'
 import {
@@ -261,4 +264,146 @@ export async function getMyMemberships(): Promise<MyMembershipsResult> {
   }
 
   return data as MyMembershipsResult
+}
+
+
+// ── S05 新增 API 函数 ──────────────────────────────────────
+
+
+async function patchJson<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+
+async function deleteRequest<T>(url: string): Promise<T> {
+  return request<T>(url, { method: 'DELETE' })
+}
+
+
+//PATCH /api/admin/clubs/{club_id} — 管理员修改社团
+export async function updateAdminClub(
+  clubId: number,
+  data: { name?: string; category?: string; introduction?: string },
+): Promise<Club> {
+  const result = await patchJson<unknown>(
+    `/api/admin/clubs/${clubId}`,
+    data,
+  )
+  return requireClub(result)
+}
+
+
+//POST /api/admin/clubs/{club_id}/cancel — 管理员注销社团
+export async function cancelClub(clubId: number): Promise<Club> {
+  const result = await postJson<unknown>(
+    `/api/admin/clubs/${clubId}/cancel`,
+    {},
+  )
+  return requireClub(result)
+}
+
+
+//PATCH /api/leader/clubs/{club_id} — 负责人修改社团简介
+export async function updateLeaderClub(
+  clubId: number,
+  data: { introduction?: string },
+): Promise<Club> {
+  const result = await patchJson<unknown>(
+    `/api/leader/clubs/${clubId}`,
+    data,
+  )
+  return requireClub(result)
+}
+
+
+//GET /api/admin/memberships — 管理员查看全量成员关系
+export async function getAdminMemberships(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedMemberships> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/memberships?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (
+    typeof data !== 'object'
+    || data === null
+    || !Array.isArray((data as Record<string, unknown>).items)
+  ) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的成员关系列表格式不正确',
+      200,
+    )
+  }
+
+  return data as PaginatedMemberships
+}
+
+
+//GET /api/leader/clubs/{club_id}/members — 负责人查看在社成员
+export async function getLeaderMembers(
+  clubId: number,
+): Promise<LeaderMembersResult> {
+  const data = await request<unknown>(
+    `/api/leader/clubs/${clubId}/members`,
+    { method: 'GET' },
+  )
+
+  if (
+    typeof data !== 'object'
+    || data === null
+    || !Array.isArray((data as Record<string, unknown>).items)
+  ) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的成员列表格式不正确',
+      200,
+    )
+  }
+
+  return data as LeaderMembersResult
+}
+
+
+//POST /api/admin/clubs/{club_id}/leaders — 管理员提升负责人
+export async function addClubLeader(
+  clubId: number,
+  membershipId: number,
+): Promise<ClubMembership> {
+  const data = await postJson<unknown>(
+    `/api/admin/clubs/${clubId}/leaders`,
+    { membership_id: membershipId },
+  )
+  return data as ClubMembership
+}
+
+
+//DELETE /api/admin/clubs/{club_id}/leaders/{membership_id} — 管理员降级负责人
+export async function removeClubLeader(
+  clubId: number,
+  membershipId: number,
+): Promise<ClubMembership> {
+  const data = await deleteRequest<unknown>(
+    `/api/admin/clubs/${clubId}/leaders/${membershipId}`,
+  )
+  return data as ClubMembership
 }

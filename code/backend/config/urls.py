@@ -24,6 +24,27 @@ urlpatterns = [
     ),
     #管理员社团管理
     path("api/admin/clubs", club_views.admin_clubs),
+    path("api/admin/clubs/<int:club_id>", club_views.admin_club_detail),
+    path(
+        "api/admin/clubs/<int:club_id>/cancel",
+        club_views.admin_cancel_club,
+    ),
+    path(
+        "api/admin/clubs/<int:club_id>/leaders",
+        club_views.admin_add_leader,
+    ),
+    path(
+        "api/admin/clubs/<int:club_id>/leaders/<int:membership_id>",
+        club_views.admin_remove_leader,
+    ),
+    #管理员成员关系
+    path("api/admin/memberships", club_views.admin_list_memberships),
+    #负责人社团管理
+    path("api/leader/clubs/<int:club_id>", club_views.leader_club_detail),
+    path(
+        "api/leader/clubs/<int:club_id>/members",
+        club_views.leader_list_members,
+    ),
     #公开社团列表
     path("api/clubs", club_views.public_list_clubs),
     #社团详情

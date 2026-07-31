@@ -228,9 +228,12 @@ onMounted(() => {
         <p>创建社团并指定初始负责人，查看全部社团记录。</p>
       </section>
 
-      <div style="margin-bottom: 20px">
+      <div style="margin-bottom: 20px; display: flex; gap: 12px">
         <el-button type="primary" @click="openCreateDialog">
           创建社团
+        </el-button>
+        <el-button @click="emit('navigate', '/admin/memberships')">
+          成员记录
         </el-button>
       </div>
 
@@ -274,6 +277,18 @@ onMounted(() => {
             <el-table-column label="创建时间" min-width="170">
               <template #default="{ row }">
                 {{ formatDate(row.created_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  type="primary"
+                  size="small"
+                  text
+                  @click="emit('navigate', `/admin/clubs/${row.id}`)"
+                >
+                  详情管理
+                </el-button>
               </template>
             </el-table-column>
           </el-table>

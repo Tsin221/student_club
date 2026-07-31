@@ -143,7 +143,7 @@ def test_admin_can_create_club_with_leaders():
     assert body["data"]["club"]["name"] == "测试社团"
     assert body["data"]["club"]["category"] == "学术科技"
     assert body["data"]["club"]["status"] == "normal"
-    assert body["data"]["club"]["logo"].startswith("logos/")
+    assert body["data"]["club"]["logo"].startswith("/media/logos/")
 
     leaders_data = body["data"]["leaders"]
     assert len(leaders_data) == 2
@@ -756,3 +756,655 @@ def test_leader_sees_leader_role_in_my_memberships():
     assert my_m is not None
     assert my_m["club_role"] == "leader"
     assert my_m["member_status"] == "active"
+
+
+# ═══════════════════════════════════════════════════════════════
+# S05 新增测试
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── 辅助：创建社团并返回 club ──────────────────────────────────
+
+def create_test_club(name="测试社团", category="学术科技", introduction="简介", logo="logos/test.png", status=None):
+    """创建一个测试社团。"""
+    from clubs.models import Club
+
+    kwargs = {
+        "name": name,
+        "category": category,
+        "introduction": introduction,
+        "logo": logo,
+    }
+    if status is not None:
+        kwargs["status"] = status
+    return Club.objects.create(**kwargs)
+
+
+def create_test_membership(user, club, member_status="active", club_role="member"):
+    """创建测试成员关系。"""
+    from clubs.models import ClubMembership
+
+    return ClubMembership.objects.create(
+        user=user,
+        club=club,
+        member_status=member_status,
+        club_role=club_role,
+    )
+
+
+# ── PATCH /api/admin/clubs/{club_id} ───────────────────────────
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_name():
+    """管理员可以修改社团名称。"""
+    club = create_test_club(name="旧名称")
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"name": "新名称"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    body = response_body(response)
+    assert body["code"] == "SUCCESS"
+    assert body["data"]["name"] == "新名称"
+    club.refresh_from_db()
+    assert club.name == "新名称"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_category():
+    """管理员可以修改社团类别。"""
+    club = create_test_club(category="文化艺术")
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"category": "体育竞技"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response_body(response)["data"]["category"] == "体育竞技"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_introduction():
+    """管理员可以修改社团简介。"""
+    club = create_test_club(introduction="旧简介")
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"introduction": "新简介内容"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response_body(response)["data"]["introduction"] == "新简介内容"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_logo_in_json():
+    """Logo 只能通过文件上传更新，JSON 中提交 logo 文本字段会被拒绝。"""
+    club = create_test_club()
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"logo": "logos/something.png"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response_body(response)["code"] == "INVALID_REQUEST"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_duplicate_name():
+    """修改社团名称时重名返回 CLUB_NAME_EXISTS。"""
+    create_test_club(name="已有社团")
+    club = create_test_club(name="目标社团")
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"name": "已有社团"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 409
+    assert response_body(response)["code"] == "CLUB_NAME_EXISTS"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_invalid_category():
+    """非法类别返回 INVALID_CLUB_CATEGORY。"""
+    club = create_test_club()
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"category": "非法类别"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 422
+    assert response_body(response)["code"] == "INVALID_CLUB_CATEGORY"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_cancelled():
+    """已注销社团不能修改。"""
+    club = create_test_club(status="cancelled")
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"introduction": "改"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 409
+    assert response_body(response)["code"] == "CLUB_CANCELLED"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_student():
+    """学生不能修改社团。"""
+    club = create_test_club()
+    client, _ = login_as_student()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"introduction": "改"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert response_body(response)["code"] == "FORBIDDEN"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_unauthenticated():
+    """未登录不能修改社团。"""
+    club = create_test_club()
+
+    response = Client().patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({"introduction": "改"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 401
+    assert response_body(response)["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.django_db
+def test_admin_patch_club_rejects_empty_body():
+    """空请求体返回错误。"""
+    club = create_test_club()
+    client, _ = login_as_admin()
+
+    response = client.patch(
+        f"/api/admin/clubs/{club.id}",
+        data=json.dumps({}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response_body(response)["code"] == "INVALID_REQUEST"
+
+
+# ── POST /api/admin/clubs/{club_id}/cancel ──────────────────────
+
+
+@pytest.mark.django_db
+def test_admin_cancel_club():
+    """管理员可以注销正常社团。"""
+    club = create_test_club()
+    client, _ = login_as_admin()
+
+    response = client.post(f"/api/admin/clubs/{club.id}/cancel")
+
+    assert response.status_code == 200
+    body = response_body(response)
+    assert body["code"] == "SUCCESS"
+    assert body["data"]["status"] == "cancelled"
+    club.refresh_from_db()
+    assert club.status == "cancelled"
+
+
+@pytest.mark.django_db
+def test_admin_cancel_club_rejects_already_cancelled():
+    """已注销社团再次注销返回 CLUB_ALREADY_CANCELLED。"""
+    club = create_test_club(status="cancelled")
+    client, _ = login_as_admin()
+
+    response = client.post(f"/api/admin/clubs/{club.id}/cancel")
+
+    assert response.status_code == 409
+    assert response_body(response)["code"] == "CLUB_ALREADY_CANCELLED"
+
+
+@pytest.mark.django_db
+def test_admin_cancel_club_rejects_student():
+    """学生不能注销社团。"""
+    club = create_test_club()
+    client, _ = login_as_student()
+
+    response = client.post(f"/api/admin/clubs/{club.id}/cancel")
+
+    assert response.status_code == 403
+    assert response_body(response)["code"] == "FORBIDDEN"
+
+
+# ── PATCH /api/leader/clubs/{club_id} ──────────────────────────
+
+
+@pytest.mark.django_db
+def test_leader_patch_club_intro():
+    """负责人可以修改社团简介。"""
+    leader = create_student(username="leader_patch", name="负责")
+    club = create_test_club()
+    create_test_membership(leader, club, member_status="active", club_role="leader")
+
+    client = Client()
+    resp = login(client, leader.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.patch(
+        f"/api/leader/clubs/{club.id}",
+        data=json.dumps({"introduction": "负责人修改的简介"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response_body(response)["data"]["introduction"] == "负责人修改的简介"
+
+
+@pytest.mark.django_db
+def test_leader_patch_club_rejects_logo_in_json():
+    """负责人通过 JSON 提交 logo 字段会被拒绝（Logo 只能通过文件上传）。"""
+    leader = create_student(username="leader_logo", name="负责")
+    club = create_test_club()
+    create_test_membership(leader, club, member_status="active", club_role="leader")
+
+    client = Client()
+    resp = login(client, leader.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.patch(
+        f"/api/leader/clubs/{club.id}",
+        data=json.dumps({"logo": "logos/some.png"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response_body(response)["code"] == "INVALID_REQUEST"
+
+
+@pytest.mark.django_db
+def test_leader_patch_club_rejects_name():
+    """负责人不能修改社团名称。"""
+    leader = create_student(username="leader_name", name="负责")
+    club = create_test_club()
+    create_test_membership(leader, club, member_status="active", club_role="leader")
+
+    client = Client()
+    resp = login(client, leader.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.patch(
+        f"/api/leader/clubs/{club.id}",
+        data=json.dumps({"name": "新名称", "introduction": "简介"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "name" in response_body(response)["message"].lower() or response_body(response)["code"] == "INVALID_REQUEST"
+
+
+@pytest.mark.django_db
+def test_leader_patch_club_rejects_non_leader():
+    """普通成员不能以负责人身份修改社团。"""
+    member = create_student(username="ordinary_member", name="普通")
+    club = create_test_club()
+    create_test_membership(member, club, member_status="active", club_role="member")
+
+    client = Client()
+    resp = login(client, member.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.patch(
+        f"/api/leader/clubs/{club.id}",
+        data=json.dumps({"introduction": "改"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert response_body(response)["code"] == "NOT_CLUB_LEADER"
+
+
+# ── GET /api/admin/memberships ─────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_admin_list_memberships():
+    """管理员可以查看全量成员关系。"""
+    club = create_test_club()
+    student1 = create_student(username="mem_s1", name="学生1")
+    student2 = create_student(username="mem_s2", name="学生2")
+    create_test_membership(student1, club, member_status="active", club_role="leader")
+    create_test_membership(student2, club, member_status="exited", club_role="member")
+
+    client, _ = login_as_admin()
+    response = client.get("/api/admin/memberships")
+
+    assert response.status_code == 200
+    body = response_body(response)
+    assert body["code"] == "SUCCESS"
+    assert len(body["data"]["items"]) >= 2
+    assert body["data"]["total"] >= 2
+
+
+@pytest.mark.django_db
+def test_admin_list_memberships_pagination():
+    """管理员成员关系列表分页正确。"""
+    club = create_test_club()
+    for i in range(5):
+        student = create_student(
+            username=f"page_mem_{i}",
+            name=f"分页{i}",
+        )
+        create_test_membership(student, club)
+
+    client, _ = login_as_admin()
+    response = client.get("/api/admin/memberships?page=1&page_size=2")
+
+    body = response_body(response)
+    assert len(body["data"]["items"]) <= 2
+    assert body["data"]["total"] >= 5
+
+
+@pytest.mark.django_db
+def test_admin_list_memberships_rejects_student():
+    """学生不能查看管理员成员关系列表。"""
+    client, _ = login_as_student()
+    response = client.get("/api/admin/memberships")
+
+    assert response.status_code == 403
+
+
+# ── GET /api/leader/clubs/{club_id}/members ────────────────────
+
+
+@pytest.mark.django_db
+def test_leader_list_members():
+    """负责人可以查看在社成员（含手机号）。"""
+    leader = create_student(username="list_leader", name="负责", phone="13800000001")
+    member = create_student(username="list_member", name="成员", phone="13800000002")
+    club = create_test_club()
+    create_test_membership(leader, club, member_status="active", club_role="leader")
+    create_test_membership(member, club, member_status="active", club_role="member")
+
+    client = Client()
+    resp = login(client, leader.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.get(f"/api/leader/clubs/{club.id}/members")
+
+    assert response.status_code == 200
+    body = response_body(response)
+    items = body["data"]["items"]
+    assert len(items) >= 2
+    #负责人应该能看到成员手机号
+    member_data = next(
+        (m for m in items if m["user"]["username"] == "list_member"), None
+    )
+    assert member_data is not None
+    assert member_data["user"]["phone"] == "13800000002"
+
+
+@pytest.mark.django_db
+def test_leader_list_members_only_active():
+    """负责人成员列表只包含在社成员。"""
+    leader = create_student(username="only_leader")
+    active_member = create_student(username="active_m")
+    exited_member = create_student(username="exited_m")
+    club = create_test_club()
+    create_test_membership(leader, club, member_status="active", club_role="leader")
+    create_test_membership(active_member, club, member_status="active", club_role="member")
+    create_test_membership(exited_member, club, member_status="exited", club_role="member")
+
+    client = Client()
+    resp = login(client, leader.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.get(f"/api/leader/clubs/{club.id}/members")
+
+    items = response_body(response)["data"]["items"]
+    usernames = [m["user"]["username"] for m in items]
+    assert "active_m" in usernames
+    assert "exited_m" not in usernames
+
+
+@pytest.mark.django_db
+def test_leader_list_members_rejects_non_leader():
+    """非负责人不能查看成员列表。"""
+    member = create_student(username="not_leader")
+    club = create_test_club()
+    create_test_membership(member, club, member_status="active", club_role="member")
+
+    client = Client()
+    resp = login(client, member.username, "StrongPass!2026")
+    assert resp.status_code == 200
+
+    response = client.get(f"/api/leader/clubs/{club.id}/members")
+
+    assert response.status_code == 403
+    assert response_body(response)["code"] == "NOT_CLUB_LEADER"
+
+
+# ── POST /api/admin/clubs/{club_id}/leaders ────────────────────
+
+
+@pytest.mark.django_db
+def test_admin_add_leader():
+    """管理员可以将普通成员提升为负责人。"""
+    club = create_test_club()
+    member = create_student(username="to_leader", name="待提升")
+    membership = create_test_membership(member, club, member_status="active", club_role="member")
+
+    client, _ = login_as_admin()
+    response = client.post(
+        f"/api/admin/clubs/{club.id}/leaders",
+        data=json.dumps({"membership_id": membership.id}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    body = response_body(response)
+    assert body["data"]["club_role"] == "leader"
+    membership.refresh_from_db()
+    assert membership.club_role == "leader"
+
+
+@pytest.mark.django_db
+def test_admin_add_leader_rejects_non_ordinary():
+    """已经是负责人的成员不能再次提升。"""
+    club = create_test_club()
+    leader = create_student(username="already_leader")
+    membership = create_test_membership(leader, club, member_status="active", club_role="leader")
+
+    client, _ = login_as_admin()
+    response = client.post(
+        f"/api/admin/clubs/{club.id}/leaders",
+        data=json.dumps({"membership_id": membership.id}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 422
+    assert response_body(response)["code"] == "MEMBERSHIP_NOT_ORDINARY"
+
+
+@pytest.mark.django_db
+def test_admin_add_leader_rejects_inactive():
+    """已退出成员不能提升为负责人。"""
+    club = create_test_club()
+    member = create_student(username="exited_member_promote")
+    membership = create_test_membership(member, club, member_status="exited", club_role="member")
+
+    client, _ = login_as_admin()
+    response = client.post(
+        f"/api/admin/clubs/{club.id}/leaders",
+        data=json.dumps({"membership_id": membership.id}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 422
+    assert response_body(response)["code"] == "MEMBERSHIP_NOT_ACTIVE"
+
+
+@pytest.mark.django_db
+def test_admin_add_leader_rejects_disabled_student():
+    """已停用学生不能提升为负责人。"""
+    club = create_test_club()
+    disabled = create_student(
+        username="disabled_promote",
+        account_status=get_user_model().AccountStatus.DISABLED,
+    )
+    membership = create_test_membership(disabled, club, member_status="active", club_role="member")
+
+    client, _ = login_as_admin()
+    response = client.post(
+        f"/api/admin/clubs/{club.id}/leaders",
+        data=json.dumps({"membership_id": membership.id}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 422
+    assert response_body(response)["code"] == "ACCOUNT_DISABLED"
+
+
+@pytest.mark.django_db
+def test_admin_add_leader_rejects_student():
+    """学生不能添加负责人。"""
+    club = create_test_club()
+    member = create_student(username="target_member")
+    membership = create_test_membership(member, club, member_status="active", club_role="member")
+
+    client, _ = login_as_student()
+    response = client.post(
+        f"/api/admin/clubs/{club.id}/leaders",
+        data=json.dumps({"membership_id": membership.id}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+# ── DELETE /api/admin/clubs/{club_id}/leaders/{membership_id} ──
+
+
+@pytest.mark.django_db
+def test_admin_remove_leader():
+    """管理员可以取消负责人身份，降级为普通成员。"""
+    club = create_test_club()
+    leader = create_student(username="to_demote")
+    leader2 = create_student(username="backup_leader")
+    membership = create_test_membership(leader, club, member_status="active", club_role="leader")
+    create_test_membership(leader2, club, member_status="active", club_role="leader")
+
+    client, _ = login_as_admin()
+    response = client.delete(
+        f"/api/admin/clubs/{club.id}/leaders/{membership.id}",
+    )
+
+    assert response.status_code == 200
+    body = response_body(response)
+    assert body["data"]["club_role"] == "member"
+    assert body["data"]["member_status"] == "active"
+    membership.refresh_from_db()
+    assert membership.club_role == "member"
+
+
+@pytest.mark.django_db
+def test_admin_remove_leader_last_effective():
+    """不能移除最后一名有效负责人。"""
+    club = create_test_club()
+    leader = create_student(username="last_leader")
+    membership = create_test_membership(leader, club, member_status="active", club_role="leader")
+
+    client, _ = login_as_admin()
+    response = client.delete(
+        f"/api/admin/clubs/{club.id}/leaders/{membership.id}",
+    )
+
+    assert response.status_code == 409
+    assert response_body(response)["code"] == "LAST_EFFECTIVE_LEADER"
+
+
+@pytest.mark.django_db
+def test_admin_remove_leader_not_current_leader():
+    """不能取消非负责人的成员。"""
+    club = create_test_club()
+    member = create_student(username="ordinary_target")
+    membership = create_test_membership(member, club, member_status="active", club_role="member")
+
+    client, _ = login_as_admin()
+    response = client.delete(
+        f"/api/admin/clubs/{club.id}/leaders/{membership.id}",
+    )
+
+    assert response.status_code == 422
+    assert response_body(response)["code"] == "NOT_CURRENT_LEADER"
+
+
+@pytest.mark.django_db
+def test_admin_remove_leader_rejects_student():
+    """学生不能取消负责人。"""
+    club = create_test_club()
+    leader = create_student(username="student_cannot_remove")
+    leader2 = create_student(username="backup_leader2")
+    membership = create_test_membership(leader, club, member_status="active", club_role="leader")
+    create_test_membership(leader2, club, member_status="active", club_role="leader")
+
+    client, _ = login_as_student()
+    response = client.delete(
+        f"/api/admin/clubs/{club.id}/leaders/{membership.id}",
+    )
+
+    assert response.status_code == 403
+
+
+# ── 最后有效负责人保护：停用负责人不算有效 ──────────────────────
+
+
+@pytest.mark.django_db
+def test_admin_remove_leader_disabled_leader_not_effective():
+    """已停用的负责人不计入有效负责人，不能移除最后一名活跃负责人。"""
+    club = create_test_club()
+    active_leader = create_student(username="active_ld", account_status="active")
+    disabled_leader = create_student(
+        username="disabled_ld",
+        account_status=get_user_model().AccountStatus.DISABLED,
+    )
+    membership_active = create_test_membership(
+        active_leader, club, member_status="active", club_role="leader",
+    )
+    create_test_membership(
+        disabled_leader, club, member_status="active", club_role="leader",
+    )
+
+    #虽然有两名负责人，但 disabled_leader 不计入有效，移除 active_leader 应该失败
+    client, _ = login_as_admin()
+    response = client.delete(
+        f"/api/admin/clubs/{club.id}/leaders/{membership_active.id}",
+    )
+
+    assert response.status_code == 409
+    assert response_body(response)["code"] == "LAST_EFFECTIVE_LEADER"

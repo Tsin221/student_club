@@ -13,6 +13,7 @@ from .models import Club, ClubMembership
 from .serializers import (
     serialize_club,
     serialize_membership_for_admin,
+    serialize_membership_for_leader,
     serialize_my_membership,
 )
 
@@ -96,6 +97,86 @@ def require_active_student(request):
         )
 
     return request.user
+
+
+#要求用户是目标社团当前有效负责人（账号正常、社团正常、在社、负责人）。
+#通过则返回 (user, membership)。
+def require_leader_of_club(request, club_id):
+    if not request.user.is_authenticated:
+        raise ApiError(
+            code="UNAUTHENTICATED",
+            message="请先登录",
+            status=401,
+        )
+
+    user_model = get_user_model()
+    user = request.user
+
+    if user.platform_role != user_model.PlatformRole.STUDENT:
+        raise ApiError(
+            code="FORBIDDEN",
+            message="当前账号不是学生账号",
+            status=403,
+        )
+
+    if user.account_status != user_model.AccountStatus.ACTIVE:
+        raise ApiError(
+            code="ACCOUNT_DISABLED",
+            message="账号已停用",
+            status=403,
+        )
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    try:
+        membership = ClubMembership.objects.get(user=user, club=club)
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="NOT_CLUB_LEADER",
+            message="你不是该社团的负责人",
+            status=403,
+        )
+
+    if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="NOT_CLUB_LEADER",
+            message="你不是该社团的当前有效负责人",
+            status=403,
+        )
+
+    if membership.club_role != ClubMembership.ClubRole.LEADER:
+        raise ApiError(
+            code="NOT_CLUB_LEADER",
+            message="你不是该社团的负责人",
+            status=403,
+        )
+
+    return user, membership
+
+
+#统计正常社团的有效负责人数量。
+def _count_effective_leaders(club):
+    user_model = get_user_model()
+    return ClubMembership.objects.filter(
+        club=club,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+        club_role=ClubMembership.ClubRole.LEADER,
+        user__account_status=user_model.AccountStatus.ACTIVE,
+    ).count()
 
 
 # ── 分页辅助 ────────────────────────────────────────────────
@@ -484,4 +565,494 @@ def my_memberships(request):
             "items": [serialize_my_membership(m) for m in memberships],
         },
         message="我的社团获取成功",
+    )
+
+
+# ── 请求体解析辅助 ──────────────────────────────────────────
+
+#安全解析 JSON 请求体。
+def _parse_json_body(request):
+    content_type = request.content_type or ""
+    if not content_type.startswith("application/json"):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求体必须使用 JSON",
+            status=400,
+        )
+    try:
+        import json as _json
+        return _json.loads(request.body)
+    except (_json.JSONDecodeError, UnicodeDecodeError):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="JSON 格式不正确",
+            status=400,
+        )
+
+
+#解析社团 PATCH 请求体，支持 JSON 和 multipart。
+#注意：Django 只对 POST 自动解析 multipart；PATCH 的 multipart 需要手动处理。
+#返回 (text_fields_dict, logo_file_or_none)。
+def _parse_club_patch_body(request, allowed_fields):
+    content_type_full = request.content_type or ""
+    content_type = content_type_full.split(";")[0].strip()
+
+    if content_type.startswith("multipart/form-data"):
+        #手动解析 multipart/form-data 请求体（Django 不会为 PATCH 自动解析）
+        try:
+            from django.http.multipartparser import MultiPartParser
+            from io import BytesIO
+
+            upload_handlers = request.upload_handlers
+            parser = MultiPartParser(
+                META=request.META,
+                input_data=BytesIO(request.body),
+                upload_handlers=upload_handlers,
+                encoding=request.encoding or "utf-8",
+            )
+            post_data, files = parser.parse()
+        except Exception as exc:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"请求体解析失败：{exc}",
+                status=400,
+            )
+
+        text_fields = {}
+        for field in allowed_fields:
+            if field in post_data:
+                text_fields[field] = post_data.get(field, "").strip()
+        logo_file = files.get("logo")
+        #拒绝不在允许列表中的字段
+        for key in post_data:
+            if key not in allowed_fields and key != "logo":
+                raise ApiError(
+                    code="INVALID_REQUEST",
+                    message=f"不允许修改字段 '{key}'",
+                    status=400,
+                )
+        return text_fields, logo_file
+
+    if content_type == "application/json":
+        body = _parse_json_body(request)
+        text_fields = {}
+        for field in allowed_fields:
+            if field in body:
+                text_fields[field] = str(body[field]).strip() if body[field] is not None else ""
+        #拒绝不在允许列表中的字段
+        for key in body:
+            if key not in allowed_fields:
+                raise ApiError(
+                    code="INVALID_REQUEST",
+                    message=f"不允许修改字段 '{key}'",
+                    status=400,
+                )
+        return text_fields, None
+
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="请求体必须使用 JSON 或 multipart/form-data",
+        status=400,
+    )
+
+
+# ── PATCH /api/admin/clubs/{club_id} ──────────────────────────
+
+#管理员修改社团允许的文本字段和 Logo。
+ADMIN_UPDATE_FIELDS = {"name", "category", "introduction"}
+
+def _admin_update_club(request, club_id):
+    require_admin(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="已注销社团不能修改",
+            status=409,
+        )
+
+    text_fields, logo_file = _parse_club_patch_body(request, ADMIN_UPDATE_FIELDS)
+
+    if not text_fields and logo_file is None:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请至少提供一个要修改的字段",
+            status=400,
+        )
+
+    #校验名称
+    if "name" in text_fields:
+        name = text_fields["name"]
+        if not name:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="社团名称不能为空",
+                status=400,
+            )
+        if len(name) > 100:
+            raise ApiError(
+                code="VALIDATION_ERROR",
+                message="社团名称超过允许长度",
+                status=422,
+            )
+        if Club.objects.filter(name=name).exclude(id=club.id).exists():
+            raise ApiError(
+                code="CLUB_NAME_EXISTS",
+                message="社团名称已存在",
+                status=409,
+            )
+        club.name = name
+
+    #校验类别
+    if "category" in text_fields:
+        category = text_fields["category"]
+        if not category:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="社团类别不能为空",
+                status=400,
+            )
+        validate_category(category)
+        club.category = category
+
+    #更新简介
+    if "introduction" in text_fields:
+        introduction = text_fields["introduction"]
+        if not introduction:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="社团简介不能为空",
+                status=400,
+            )
+        club.introduction = introduction
+
+    #更新 Logo
+    if logo_file:
+        club.logo = save_logo(logo_file)
+
+    try:
+        club.save()
+    except IntegrityError as error:
+        raise ApiError(
+            code="CLUB_NAME_EXISTS",
+            message="社团名称已存在",
+            status=409,
+        ) from error
+
+    return success_response(
+        data=serialize_club(club),
+        message="社团信息修改成功",
+    )
+
+
+# ── POST /api/admin/clubs/{club_id}/cancel ────────────────────
+
+def admin_cancel_club(request, club_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+    require_admin(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status == Club.Status.CANCELLED:
+        raise ApiError(
+            code="CLUB_ALREADY_CANCELLED",
+            message="社团已经注销",
+            status=409,
+        )
+
+    club.status = Club.Status.CANCELLED
+    club.save()
+
+    return success_response(
+        data=serialize_club(club),
+        message="社团已注销",
+    )
+
+
+# ── PATCH /api/leader/clubs/{club_id} ─────────────────────────
+
+#负责人修改本人负责社团的简介（Logo 通过文件上传更新）。
+LEADER_UPDATE_FIELDS = {"introduction"}
+
+def leader_club_detail(request, club_id):
+    if request.method != "PATCH":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+    require_leader_of_club(request, club_id)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    text_fields, logo_file = _parse_club_patch_body(request, LEADER_UPDATE_FIELDS)
+
+    if not text_fields and logo_file is None:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请至少提供一个要修改的字段",
+            status=400,
+        )
+
+    if "introduction" in text_fields:
+        introduction = text_fields["introduction"]
+        if not introduction:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="社团简介不能为空",
+                status=400,
+            )
+        club.introduction = introduction
+
+    if logo_file:
+        club.logo = save_logo(logo_file)
+
+    club.save()
+
+    return success_response(
+        data=serialize_club(club),
+        message="社团信息修改成功",
+    )
+
+
+# ── GET /api/admin/memberships ─────────────────────────────────
+
+#管理员查看全量成员关系记录。
+@require_GET
+def admin_list_memberships(request):
+    require_admin(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = ClubMembership.objects.select_related("user", "club").order_by("id")
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_membership_for_admin(m) for m in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="成员关系列表获取成功",
+    )
+
+
+# ── GET /api/leader/clubs/{club_id}/members ────────────────────
+
+#负责人（或管理员）查看社团当前在社成员。
+@require_GET
+def leader_list_members(request, club_id):
+    #管理员也可以查看
+    user_model = get_user_model()
+    if request.user.is_authenticated and request.user.platform_role == user_model.PlatformRole.ADMIN:
+        #验证社团存在
+        try:
+            Club.objects.get(id=club_id)
+        except Club.DoesNotExist:
+            raise ApiError(
+                code="RESOURCE_NOT_FOUND",
+                message="社团不存在",
+                status=404,
+            )
+    else:
+        require_leader_of_club(request, club_id)
+
+    memberships = ClubMembership.objects.filter(
+        club_id=club_id,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+    ).select_related("user").order_by("id")
+
+    return success_response(
+        data={
+            "items": [serialize_membership_for_leader(m) for m in memberships],
+        },
+        message="社团成员列表获取成功",
+    )
+
+
+# ── POST /api/admin/clubs/{club_id}/leaders ────────────────────
+
+#管理员从当前在社普通成员中提升负责人。
+def admin_add_leader(request, club_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+    require_admin(request)
+
+    body = _parse_json_body(request)
+    membership_id = body.get("membership_id")
+
+    if not membership_id:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请提供 membership_id",
+            status=400,
+        )
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="已注销社团不能修改负责人",
+            status=409,
+        )
+
+    try:
+        membership = ClubMembership.objects.select_related("user").get(
+            id=membership_id,
+            club=club,
+        )
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="成员关系不存在",
+            status=404,
+        )
+
+    if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="MEMBERSHIP_NOT_ACTIVE",
+            message="该成员不在社",
+            status=422,
+        )
+
+    if membership.club_role != ClubMembership.ClubRole.MEMBER:
+        raise ApiError(
+            code="MEMBERSHIP_NOT_ORDINARY",
+            message="只能将普通成员提升为负责人",
+            status=422,
+        )
+
+    user_model = get_user_model()
+    if membership.user.account_status != user_model.AccountStatus.ACTIVE:
+        raise ApiError(
+            code="ACCOUNT_DISABLED",
+            message="该学生账号已停用，不能提升为负责人",
+            status=422,
+        )
+
+    membership.club_role = ClubMembership.ClubRole.LEADER
+    membership.save()
+
+    return success_response(
+        data=serialize_membership_for_admin(membership),
+        message="负责人添加成功",
+    )
+
+
+# ── DELETE /api/admin/clubs/{club_id}/leaders/{membership_id} ──
+
+#管理员取消负责人身份，降级为普通成员。
+def admin_remove_leader(request, club_id, membership_id):
+    if request.method != "DELETE":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+    require_admin(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="已注销社团不能修改负责人",
+            status=409,
+        )
+
+    try:
+        membership = ClubMembership.objects.select_related("user").get(
+            id=membership_id,
+            club=club,
+        )
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="成员关系不存在",
+            status=404,
+        )
+
+    if membership.club_role != ClubMembership.ClubRole.LEADER:
+        raise ApiError(
+            code="NOT_CURRENT_LEADER",
+            message="目标成员不是负责人",
+            status=422,
+        )
+
+    #最后有效负责人保护
+    if _count_effective_leaders(club) <= 1:
+        raise ApiError(
+            code="LAST_EFFECTIVE_LEADER",
+            message="不能取消最后一名有效负责人",
+            status=409,
+        )
+
+    membership.club_role = ClubMembership.ClubRole.MEMBER
+    membership.save()
+
+    return success_response(
+        data=serialize_membership_for_admin(membership),
+        message="负责人已降级为普通成员",
+    )
+
+
+# ── /api/admin/clubs/{club_id} 方法分发 ──────────────────────
+
+def admin_club_detail(request, club_id):
+    if request.method == "PATCH":
+        return _admin_update_club(request, club_id)
+    if request.method == "GET":
+        #复用已有 club_detail 逻辑
+        return club_detail(request, club_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
     )

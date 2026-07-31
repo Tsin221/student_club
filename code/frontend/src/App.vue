@@ -10,6 +10,9 @@ import StudentClubDetailView from './views/StudentClubDetailView.vue'
 import StudentMembershipsView from './views/StudentMembershipsView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
+import AdminClubDetailView from './views/AdminClubDetailView.vue'
+import AdminMembershipsView from './views/AdminMembershipsView.vue'
+import LeaderClubWorkspaceView from './views/LeaderClubWorkspaceView.vue'
 
 
 const currentPath = ref(window.location.pathname)
@@ -18,6 +21,16 @@ const routeRevision = ref(0)
 //学生社团详情页匹配（/student/clubs/{数字}）
 function isStudentClubDetail(path: string): boolean {
   return /^\/student\/clubs\/\d+$/.test(path)
+}
+
+//管理员社团详情页匹配
+function isAdminClubDetail(path: string): boolean {
+  return /^\/admin\/clubs\/\d+$/.test(path)
+}
+
+//负责人社团工作台匹配
+function isLeaderClubWorkspace(path: string): boolean {
+  return /^\/leader\/clubs\/\d+$/.test(path)
 }
 
 const currentView = computed(() => {
@@ -37,10 +50,18 @@ const currentView = computed(() => {
       return AdminUsersView
     case '/admin/clubs':
       return AdminClubsView
+    case '/admin/memberships':
+      return AdminMembershipsView
     case '/login':
     default: {
       if (isStudentClubDetail(path)) {
         return StudentClubDetailView
+      }
+      if (isAdminClubDetail(path)) {
+        return AdminClubDetailView
+      }
+      if (isLeaderClubWorkspace(path)) {
+        return LeaderClubWorkspaceView
       }
       return LoginView
     }
@@ -70,7 +91,7 @@ const VALID_PATHS = [
 ]
 
 function isValidPath(path: string): boolean {
-  return VALID_PATHS.includes(path) || isStudentClubDetail(path)
+  return VALID_PATHS.includes(path) || isStudentClubDetail(path) || isAdminClubDetail(path) || isLeaderClubWorkspace(path)
 }
 
 

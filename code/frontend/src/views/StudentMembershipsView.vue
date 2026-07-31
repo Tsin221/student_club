@@ -156,6 +156,25 @@ onMounted(() => {
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.club_role === 'leader' && row.member_status === 'active' && row.club.status === 'normal'"
+                  type="primary"
+                  size="small"
+                  text
+                  @click="emit('navigate', `/leader/clubs/${row.club.id}`)"
+                >
+                  管理社团
+                </el-button>
+                <span
+                  v-else-if="row.club.status === 'cancelled'"
+                  style="font-size: 12px; color: var(--muted)"
+                >
+                  已注销
+                </span>
+              </template>
+            </el-table-column>
           </el-table>
         </template>
       </el-card>

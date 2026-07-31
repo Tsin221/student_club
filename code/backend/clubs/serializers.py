@@ -35,6 +35,26 @@ def serialize_membership_for_admin(membership):
     }
 
 
+#将成员关系序列化为负责人视角的返回字典。
+def serialize_membership_for_leader(membership):
+    user = membership.user
+    return {
+        "id": membership.id,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "name": user.name,
+            "phone": user.phone,
+            "major_class": user.major_class,
+            "grade": user.grade,
+            "account_status": user.account_status,
+        },
+        "club_id": membership.club_id,
+        "member_status": membership.member_status,
+        "club_role": membership.club_role,
+    }
+
+
 #将成员关系序列化为本人视角的返回字典。
 def serialize_my_membership(membership):
     club = membership.club
