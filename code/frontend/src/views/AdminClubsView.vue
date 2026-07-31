@@ -282,7 +282,7 @@ onMounted(() => {
                 {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button
                   type="primary"
@@ -291,6 +291,14 @@ onMounted(() => {
                   @click="emit('navigate', `/admin/clubs/${row.id}`)"
                 >
                   详情管理
+                </el-button>
+                <el-button
+                  v-if="row.status === 'cancelled'"
+                  size="small"
+                  text
+                  @click="emit('navigate', `/admin/clubs/${row.id}/announcements`)"
+                >
+                  公告历史
                 </el-button>
               </template>
             </el-table-column>

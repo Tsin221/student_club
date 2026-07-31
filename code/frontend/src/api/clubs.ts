@@ -1,13 +1,19 @@
 import type {
+  Announcement,
   Club,
   ClubMembership,
+  CreateAnnouncementInput,
   CreateClubResult,
+  DeleteAnnouncementResult,
   LeaderMembersResult,
+  MyMembership,
   MyMembershipsResult,
+  PaginatedAnnouncements,
   PaginatedClubs,
   PaginatedMemberships,
   PaginatedRecruitments,
   Recruitment,
+  UpdateAnnouncementInput,
 } from '../types/club'
 import { ApiRequestError } from './auth'
 import {
@@ -613,6 +619,241 @@ export async function getAdminRecruitments(
       throw new ApiRequestError(
         'INVALID_RESPONSE',
         '服务器返回的招新数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S08 成员退出与移除 API
+// ═════════════════════════════════════════════════════════════
+
+
+//POST /api/me/memberships/{membership_id}/exit — 学生主动退出社团
+export async function exitMembership(
+  membershipId: number,
+): Promise<MyMembership> {
+  const data = await postJson<unknown>(
+    `/api/me/memberships/${membershipId}/exit`,
+    {},
+  )
+  return data as MyMembership
+}
+
+
+//POST /api/leader/memberships/{membership_id}/remove — 负责人移除成员
+export async function removeMember(
+  membershipId: number,
+): Promise<{
+  id: number
+  user_id: number
+  club_id: number
+  member_status: string
+  club_role: string
+}> {
+  const data = await postJson<unknown>(
+    `/api/leader/memberships/${membershipId}/remove`,
+    {},
+  )
+  return data as {
+    id: number
+    user_id: number
+    club_id: number
+    member_status: string
+    club_role: string
+  }
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S09 社团公告 API
+// ═════════════════════════════════════════════════════════════
+
+
+function isAnnouncement(value: unknown): value is Announcement {
+  if (typeof value !== 'object' || value === null) return false
+  const a = value as Record<string, unknown>
+  return (
+    typeof a.id === 'number'
+    && typeof a.title === 'string'
+    && typeof a.content === 'string'
+    && typeof a.club_id === 'number'
+    && typeof a.publisher === 'object'
+    && a.publisher !== null
+    && typeof a.published_at === 'string'
+    && typeof a.is_pinned === 'boolean'
+    && typeof a.status === 'string'
+  )
+}
+
+
+function requireAnnouncement(value: unknown): Announcement {
+  if (!isAnnouncement(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的公告数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+function isPaginatedAnnouncements(value: unknown): value is PaginatedAnnouncements {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    Array.isArray(c.items)
+    && typeof c.page === 'number'
+    && typeof c.page_size === 'number'
+    && typeof c.total === 'number'
+  )
+}
+
+
+//GET /api/clubs/{club_id}/announcements — 成员查看正常公告
+export async function listAnnouncements(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedAnnouncements> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/clubs/${clubId}/announcements?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedAnnouncements(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的公告列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isAnnouncement(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的公告数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//GET /api/leader/clubs/{club_id}/announcements — 负责人查看全量公告
+export async function getLeaderAnnouncements(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedAnnouncements> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/leader/clubs/${clubId}/announcements?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedAnnouncements(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的公告列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isAnnouncement(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的公告数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+//POST /api/leader/clubs/{club_id}/announcements — 负责人发布公告
+export async function createAnnouncement(
+  clubId: number,
+  data: CreateAnnouncementInput,
+): Promise<Announcement> {
+  const result = await postJson<unknown>(
+    `/api/leader/clubs/${clubId}/announcements`,
+    data,
+  )
+  return requireAnnouncement(result)
+}
+
+
+//PATCH /api/leader/announcements/{announcement_id} — 负责人修改公告
+export async function updateAnnouncement(
+  announcementId: number,
+  data: UpdateAnnouncementInput,
+): Promise<Announcement> {
+  const result = await patchJson<unknown>(
+    `/api/leader/announcements/${announcementId}`,
+    data,
+  )
+  return requireAnnouncement(result)
+}
+
+
+//DELETE /api/leader/announcements/{announcement_id} — 负责人逻辑删除公告
+export async function deleteAnnouncement(
+  announcementId: number,
+): Promise<DeleteAnnouncementResult> {
+  const data = await deleteRequest<unknown>(
+    `/api/leader/announcements/${announcementId}`,
+  )
+  return data as DeleteAnnouncementResult
+}
+
+
+//GET /api/admin/clubs/{club_id}/announcements — 管理员查看已注销社团公告
+export async function getAdminAnnouncements(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedAnnouncements> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/clubs/${clubId}/announcements?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedAnnouncements(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的公告列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isAnnouncement(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的公告数据不完整',
         200,
       )
     }

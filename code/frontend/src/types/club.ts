@@ -195,3 +195,45 @@ export interface Notification {
 export interface NotificationsResult {
   items: Notification[]
 }
+
+// ── S09 社团公告 ──────────────────────────────────────────────
+
+export type AnnouncementStatus = '正常' | '已删除'
+
+export interface Announcement {
+  id: number
+  title: string
+  content: string
+  club_id: number
+  publisher: {
+    id: number
+    username: string
+  }
+  published_at: string
+  is_pinned: boolean
+  status: AnnouncementStatus
+}
+
+export interface PaginatedAnnouncements {
+  items: Announcement[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface CreateAnnouncementInput {
+  title: string
+  content: string
+  is_pinned?: boolean
+}
+
+export interface UpdateAnnouncementInput {
+  title?: string
+  content?: string
+  is_pinned?: boolean
+}
+
+export interface DeleteAnnouncementResult {
+  id: number
+  status: AnnouncementStatus
+}

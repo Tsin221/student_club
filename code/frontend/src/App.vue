@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
+import AdminAnnouncementsView from './views/AdminAnnouncementsView.vue'
 import AdminApplicationsView from './views/AdminApplicationsView.vue'
 import AdminClubDetailView from './views/AdminClubDetailView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
@@ -55,6 +56,11 @@ function isLeaderApplications(path: string): boolean {
   return /^\/leader\/clubs\/\d+\/applications$/.test(path)
 }
 
+//管理员公告历史匹配（/admin/clubs/{数字}/announcements）
+function isAdminAnnouncements(path: string): boolean {
+  return /^\/admin\/clubs\/\d+\/announcements$/.test(path)
+}
+
 const currentView = computed(() => {
   const path = currentPath.value
   switch (path) {
@@ -102,6 +108,9 @@ const currentView = computed(() => {
       if (isLeaderClubWorkspace(path)) {
         return LeaderClubWorkspaceView
       }
+      if (isAdminAnnouncements(path)) {
+        return AdminAnnouncementsView
+      }
       return LoginView
     }
   }
@@ -136,6 +145,7 @@ function isValidPath(path: string): boolean {
     || isStudentClubDetail(path)
     || isStudentRecruitments(path)
     || isAdminClubDetail(path)
+    || isAdminAnnouncements(path)
     || isLeaderRecruitments(path)
     || isLeaderApplications(path)
     || isLeaderClubWorkspace(path)

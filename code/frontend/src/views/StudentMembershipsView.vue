@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { ApiRequestError } from '../api/auth'
-import { getMyMemberships } from '../api/clubs'
+import { exitMembership, getMyMemberships } from '../api/clubs'
 import type { MyMembership } from '../types/club'
 
 
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 const isLoading = ref(true)
 const errorMessage = ref('')
 const memberships = ref<MyMembership[]>([])
+const exitingId = ref<number | null>(null)
 
 // ── 数据加载 ──────────────────────────────────────────────
 
@@ -37,6 +39,47 @@ async function loadMemberships() {
   } finally {
     isLoading.value = false
   }
+}
+
+
+// ── 退出社团 ──────────────────────────────────────────────
+
+async function handleExit(membership: MyMembership) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要退出社团「${membership.club.name}」吗？退出后你将失去该社团的内部权限。`,
+      '确认退出',
+      {
+        confirmButtonText: '确定退出',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return //用户取消
+  }
+
+  exitingId.value = membership.id
+  try {
+    const updated = await exitMembership(membership.id)
+    //原地更新列表中的记录
+    const index = memberships.value.findIndex((m) => m.id === membership.id)
+    if (index !== -1) {
+      memberships.value[index] = updated
+    }
+    ElMessage.success('已退出社团')
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError ? error.message : '退出失败，请稍后重试',
+    )
+  } finally {
+    exitingId.value = null
+  }
+}
+
+
+function onExit(membership: unknown) {
+  handleExit(membership as MyMembership)
 }
 
 
@@ -156,7 +199,7 @@ onMounted(() => {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+            <el-table-column label="操作" width="140">
               <template #default="{ row }">
                 <el-button
                   v-if="row.club_role === 'leader' && row.member_status === 'active' && row.club.status === 'normal'"
@@ -166,6 +209,16 @@ onMounted(() => {
                   @click="emit('navigate', `/leader/clubs/${row.club.id}`)"
                 >
                   管理社团
+                </el-button>
+                <el-button
+                  v-else-if="row.club_role === 'member' && row.member_status === 'active' && row.club.status === 'normal'"
+                  type="danger"
+                  size="small"
+                  text
+                  :loading="exitingId === row.id"
+                  @click="onExit(row)"
+                >
+                  退出社团
                 </el-button>
                 <span
                   v-else-if="row.club.status === 'cancelled'"

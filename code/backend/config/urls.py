@@ -99,6 +99,38 @@ urlpatterns = [
     ),
     #学生查看通知
     path("api/me/notifications", club_views.my_notifications),
+    # ── S08：成员退出与移除 ──
+    #学生主动退出社团
+    path(
+        "api/me/memberships/<int:membership_id>/exit",
+        club_views.student_exit_membership,
+    ),
+    #负责人移除普通成员
+    path(
+        "api/leader/memberships/<int:membership_id>/remove",
+        club_views.leader_remove_member,
+    ),
+    # ── S09：社团公告 ──
+    #成员查看公告
+    path(
+        "api/clubs/<int:club_id>/announcements",
+        club_views.member_list_announcements,
+    ),
+    #负责人管理公告（列表+创建）
+    path(
+        "api/leader/clubs/<int:club_id>/announcements",
+        club_views.leader_announcements,
+    ),
+    #负责人修改或删除公告
+    path(
+        "api/leader/announcements/<int:announcement_id>",
+        club_views.leader_announcement_detail,
+    ),
+    #管理员查看已注销社团公告历史
+    path(
+        "api/admin/clubs/<int:club_id>/announcements",
+        club_views.admin_list_announcements,
+    ),
 ]
 
 #开发环境媒体文件服务

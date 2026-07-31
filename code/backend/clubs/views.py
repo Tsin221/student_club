@@ -9,9 +9,10 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Club, ClubMembership, JoinApplication, Notification, Recruitment
+from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Recruitment
 from .serializers import (
     compute_recruitment_status,
+    serialize_announcement,
     serialize_club,
     serialize_join_application,
     serialize_membership_for_admin,
@@ -1942,4 +1943,483 @@ def my_notifications(request):
             "items": [serialize_notification(n) for n in notifications],
         },
         message="通知列表获取成功",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S08：成员退出、移除和历史关系
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/me/memberships/{membership_id}/exit ──────────────
+
+#学生主动退出社团。
+def student_exit_membership(request, membership_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    user = require_active_student(request)
+
+    #查找成员关系，必须属于当前用户
+    try:
+        membership = ClubMembership.objects.select_related("club").get(
+            id=membership_id,
+            user=user,
+        )
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="成员关系不存在",
+            status=404,
+        )
+
+    #社团必须正常
+    if membership.club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    #必须是当前在社成员
+    if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="MEMBERSHIP_INACTIVE",
+            message="当前成员关系已退出或已移除",
+            status=409,
+        )
+
+    #负责人不能主动退出
+    if membership.club_role == ClubMembership.ClubRole.LEADER:
+        raise ApiError(
+            code="LEADER_CANNOT_EXIT",
+            message="负责人不能直接退出社团，请先联系管理员取消负责人身份",
+            status=409,
+        )
+
+    membership.member_status = ClubMembership.MemberStatus.EXITED
+    membership.save()
+
+    return success_response(
+        data=serialize_my_membership(membership),
+        message="已退出社团",
+    )
+
+
+# ── POST /api/leader/memberships/{membership_id}/remove ────────
+
+#负责人移除普通成员。
+def leader_remove_member(request, membership_id):
+    if request.method != "POST":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    #查找目标成员关系
+    try:
+        target = ClubMembership.objects.select_related("club", "user").get(
+            id=membership_id,
+        )
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="成员关系不存在",
+            status=404,
+        )
+
+    #验证当前用户是该社团有效负责人
+    require_leader_of_club(request, target.club_id)
+
+    #社团必须正常（require_leader_of_club 已校验，此处防御）
+    if target.club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    #目标必须是当前在社成员
+    if target.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="MEMBERSHIP_INACTIVE",
+            message="该成员已退出或已被移除",
+            status=409,
+        )
+
+    #不能移除负责人
+    if target.club_role == ClubMembership.ClubRole.LEADER:
+        raise ApiError(
+            code="TARGET_IS_LEADER",
+            message="不能移除负责人，请先联系管理员取消负责人身份",
+            status=409,
+        )
+
+    target.member_status = ClubMembership.MemberStatus.REMOVED
+    target.save()
+
+    return success_response(
+        data={
+            "id": target.id,
+            "user_id": target.user_id,
+            "club_id": target.club_id,
+            "member_status": target.member_status,
+            "club_role": target.club_role,
+        },
+        message="成员已移除",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S09：社团公告
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── 守卫：要求用户是目标社团的当前在社成员 ──────────────
+
+#校验当前用户是目标正常社团的当前在社成员。
+#通过则返回 (user, membership)。
+def require_club_member(request, club_id):
+    user = require_active_student(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    if club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，当前操作不可用",
+            status=409,
+        )
+
+    try:
+        membership = ClubMembership.objects.get(user=user, club=club)
+    except ClubMembership.DoesNotExist:
+        raise ApiError(
+            code="NOT_CLUB_MEMBER",
+            message="你不是该社团的成员",
+            status=403,
+        )
+
+    if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="MEMBERSHIP_INACTIVE",
+            message="当前成员关系已退出或已移除",
+            status=403,
+        )
+
+    return user, membership
+
+
+# ── GET /api/clubs/{club_id}/announcements ──────────────────
+
+#当前在社成员分页查看正常公告（置顶优先，同组按发布时间倒序）。
+@require_GET
+def member_list_announcements(request, club_id):
+    require_club_member(request, club_id)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Announcement.objects
+        .filter(
+            club_id=club_id,
+            status=Announcement.Status.NORMAL,
+        )
+        .select_related("publisher")
+        .order_by("-is_pinned", "-published_at")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_announcement(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="公告列表获取成功",
+    )
+
+
+# ── POST /api/leader/clubs/{club_id}/announcements ──────────
+
+#负责人发布公告。
+def _leader_create_announcement(request, club_id):
+    user, _membership = require_leader_of_club(request, club_id)
+
+    body = _parse_json_body(request)
+
+    title = (body.get("title") or "").strip()
+    content = (body.get("content") or "").strip()
+    is_pinned = bool(body.get("is_pinned", False))
+
+    #必填字段校验
+    if not title:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="公告标题不能为空",
+            status=400,
+        )
+    if len(title) > 200:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="公告标题不能超过 200 字",
+            status=422,
+        )
+    if not content:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="公告内容不能为空",
+            status=400,
+        )
+
+    announcement = Announcement.objects.create(
+        title=title,
+        content=content,
+        club_id=club_id,
+        publisher=user,
+        is_pinned=is_pinned,
+    )
+
+    return success_response(
+        data=serialize_announcement(announcement),
+        message="公告发布成功",
+        status=201,
+    )
+
+
+#负责人查看本社团全部公告（含已删除）。
+def _leader_list_announcements(request, club_id):
+    require_leader_of_club(request, club_id)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Announcement.objects
+        .filter(club_id=club_id)
+        .select_related("publisher")
+        .order_by("-is_pinned", "-published_at")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_announcement(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="公告列表获取成功",
+    )
+
+
+# /api/leader/clubs/{club_id}/announcements 方法分发。
+def leader_announcements(request, club_id):
+    if request.method == "GET":
+        return _leader_list_announcements(request, club_id)
+    if request.method == "POST":
+        return _leader_create_announcement(request, club_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── PATCH /api/leader/announcements/{announcement_id} ───────
+
+#负责人修改公告（title、content、is_pinned，至少一个字段）。
+def _leader_update_announcement(request, announcement_id):
+    try:
+        announcement = Announcement.objects.select_related("club", "publisher").get(
+            id=announcement_id,
+        )
+    except Announcement.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="公告不存在",
+            status=404,
+        )
+
+    #校验当前用户是该公告所属社团的有效负责人
+    require_leader_of_club(request, announcement.club_id)
+
+    #已删除公告不能修改
+    if announcement.status == Announcement.Status.DELETED:
+        raise ApiError(
+            code="ANNOUNCEMENT_DELETED",
+            message="已删除的公告不能修改",
+            status=409,
+        )
+
+    ALLOWED_FIELDS = {"title", "content", "is_pinned"}
+    body = _parse_json_body(request)
+
+    #拒绝不允许的字段
+    for key in body:
+        if key not in ALLOWED_FIELDS:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许修改字段 '{key}'",
+                status=400,
+            )
+
+    if not body:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请至少提供一个要修改的字段",
+            status=400,
+        )
+
+    #逐字段校验和更新
+    if "title" in body:
+        title = (body["title"] or "").strip()
+        if not title:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="公告标题不能为空",
+                status=400,
+            )
+        if len(title) > 200:
+            raise ApiError(
+                code="VALIDATION_ERROR",
+                message="公告标题不能超过 200 字",
+                status=422,
+            )
+        announcement.title = title
+
+    if "content" in body:
+        content = (body["content"] or "").strip()
+        if not content:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="公告内容不能为空",
+                status=400,
+            )
+        announcement.content = content
+
+    if "is_pinned" in body:
+        announcement.is_pinned = bool(body["is_pinned"])
+
+    announcement.save()
+
+    return success_response(
+        data=serialize_announcement(announcement),
+        message="公告修改成功",
+    )
+
+
+# ── DELETE /api/leader/announcements/{announcement_id} ──────
+
+#负责人逻辑删除公告。
+def leader_delete_announcement(request, announcement_id):
+    if request.method != "DELETE":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        announcement = Announcement.objects.select_related("club").get(
+            id=announcement_id,
+        )
+    except Announcement.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="公告不存在",
+            status=404,
+        )
+
+    #校验当前用户是该公告所属社团的有效负责人
+    require_leader_of_club(request, announcement.club_id)
+
+    #已删除公告不能重复删除
+    if announcement.status == Announcement.Status.DELETED:
+        raise ApiError(
+            code="ANNOUNCEMENT_DELETED",
+            message="该公告已经删除",
+            status=409,
+        )
+
+    announcement.status = Announcement.Status.DELETED
+    announcement.save()
+
+    return success_response(
+        data={
+            "id": announcement.id,
+            "status": announcement.status,
+        },
+        message="公告已删除",
+    )
+
+
+# /api/leader/announcements/{announcement_id} 方法分发。
+def leader_announcement_detail(request, announcement_id):
+    if request.method == "PATCH":
+        return _leader_update_announcement(request, announcement_id)
+    if request.method == "DELETE":
+        return leader_delete_announcement(request, announcement_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── GET /api/admin/clubs/{club_id}/announcements ─────────────
+
+#管理员查看已注销社团的全部公告（含已删除），正常社团返回 FORBIDDEN。
+@require_GET
+def admin_list_announcements(request, club_id):
+    require_admin(request)
+
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    #管理员只能查看已注销社团的公告历史
+    if club.status != Club.Status.CANCELLED:
+        raise ApiError(
+            code="FORBIDDEN",
+            message="只能查看已注销社团的公告历史",
+            status=403,
+        )
+
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Announcement.objects
+        .filter(club_id=club_id)
+        .select_related("publisher")
+        .order_by("-is_pinned", "-published_at")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_announcement(a) for a in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="公告列表获取成功",
     )

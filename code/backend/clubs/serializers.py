@@ -147,3 +147,23 @@ def serialize_notification(notification):
         "type": notification.type,
         "content": notification.content,
     }
+
+
+# ── S09：社团公告序列化 ────────────────────────────────────
+
+
+#将 Announcement 对象序列化为字典。
+def serialize_announcement(announcement):
+    return {
+        "id": announcement.id,
+        "title": announcement.title,
+        "content": announcement.content,
+        "club_id": announcement.club_id,
+        "publisher": {
+            "id": announcement.publisher.id,
+            "username": announcement.publisher.username,
+        },
+        "published_at": announcement.published_at.isoformat(),
+        "is_pinned": announcement.is_pinned,
+        "status": announcement.status,
+    }

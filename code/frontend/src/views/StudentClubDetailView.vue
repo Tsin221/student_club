@@ -4,8 +4,8 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { getClubDetail, getPublicRecruitments } from '../api/clubs'
-import type { Club, Recruitment } from '../types/club'
+import { getClubDetail, getPublicRecruitments, listAnnouncements } from '../api/clubs'
+import type { Announcement, Club, Recruitment } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -26,10 +26,15 @@ const errorMessage = ref('')
 const club = ref<Club | null>(null)
 const clubId = parseClubId()
 
-// ── 招新 ──────────────────────────────────────────────────
+	// ── 招新 ──────────────────────────────────────────────────
 
 const recruitments = ref<Recruitment[]>([])
 const isLoadingRecruitments = ref(false)
+
+// ── S09 公告 ────────────────────────────────────────────────
+
+const announcements = ref<Announcement[]>([])
+const isLoadingAnnouncements = ref(false)
 
 // ── 数据加载 ──────────────────────────────────────────────
 
@@ -70,6 +75,20 @@ async function loadRecruitments() {
     recruitments.value = []
   } finally {
     isLoadingRecruitments.value = false
+  }
+}
+
+
+async function loadAnnouncements() {
+  if (Number.isNaN(clubId)) return
+  isLoadingAnnouncements.value = true
+  try {
+    const data = await listAnnouncements(clubId)
+    announcements.value = data.items
+  } catch {
+    announcements.value = []
+  } finally {
+    isLoadingAnnouncements.value = false
   }
 }
 
@@ -155,6 +174,7 @@ onMounted(() => {
   loadDetail().then(() => {
     if (club.value && club.value.status === 'normal') {
       loadRecruitments()
+      loadAnnouncements()
     }
   })
 })
@@ -242,6 +262,46 @@ onMounted(() => {
           <p style="color: var(--muted); line-height: 1.8; white-space: pre-wrap">
             {{ club.introduction }}
           </p>
+        </el-card>
+
+        <!-- S09 社团公告 -->
+        <el-card
+          v-if="club.status === 'normal'"
+          class="profile-card"
+          shadow="never"
+          style="margin-top: 20px"
+        >
+          <template #header>
+            <span style="font-weight: 600">社团公告</span>
+          </template>
+
+          <div v-if="isLoadingAnnouncements" v-loading="true" style="min-height: 80px" />
+
+          <div v-else-if="announcements.length === 0">
+            <el-empty description="暂无公告" :image-size="60" />
+          </div>
+
+          <div v-else>
+            <div
+              v-for="a in announcements"
+              :key="a.id"
+              class="announcement-item"
+            >
+              <div class="announcement-header">
+                <div class="announcement-title-row">
+                  <el-tag v-if="a.is_pinned" type="warning" size="small" effect="light">
+                    置顶
+                  </el-tag>
+                  <span class="announcement-title">{{ a.title }}</span>
+                </div>
+                <span class="announcement-meta">
+                  {{ a.publisher.username }} · {{ formatDateTime(a.published_at) }}
+                </span>
+              </div>
+              <p class="announcement-content">{{ a.content }}</p>
+              <el-divider v-if="a !== announcements[announcements.length - 1]" />
+            </div>
+          </div>
         </el-card>
 
         <el-card
@@ -383,5 +443,40 @@ onMounted(() => {
 .recruitment-actions {
   margin-top: 12px;
   text-align: right;
+}
+
+.announcement-item {
+  padding: 4px 0;
+}
+
+.announcement-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.announcement-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.announcement-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.announcement-meta {
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.announcement-content {
+  color: #606266;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  margin: 0;
 }
 </style>

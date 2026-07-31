@@ -247,3 +247,53 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"[{self.type}] → {self.recipient.username}"
+
+
+#社团公告
+class Announcement(models.Model):
+
+
+    #公告状态
+    class Status(models.TextChoices):
+        NORMAL = "正常", "正常"
+        DELETED = "已删除", "已删除"
+
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="announcements",
+        db_column="club_id",
+    )
+    publisher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="published_announcements",
+        db_column="publisher_id",
+    )
+    published_at = models.DateTimeField(auto_now_add=True)
+    is_pinned = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NORMAL,
+    )
+
+    class Meta:
+        db_table = "announcement"
+        indexes = [
+            models.Index(
+                fields=["club", "status", "is_pinned", "published_at"],
+                name="ann_club_status_pin_time_idx",
+            ),
+            models.Index(
+                fields=["publisher"],
+                name="ann_publisher_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.title}（{self.club.name}）"
