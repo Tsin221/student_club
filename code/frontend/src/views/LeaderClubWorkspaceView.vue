@@ -8,14 +8,16 @@ import {
   deleteAnnouncement,
   getClubDetail,
   getLeaderAnnouncements,
+  getLeaderFeedbacks,
   getLeaderMembers,
   listPosts,
   pinPost,
+  processFeedback,
   removeMember,
   updateAnnouncement,
   updateLeaderClub,
 } from '../api/clubs'
-import type { Announcement, Club, MembershipForLeader, Post } from '../types/club'
+import type { Announcement, Club, Feedback, MembershipForLeader, Post } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -370,12 +372,90 @@ function accountStatusLabel(status: string): string {
 }
 
 
+// ── S14 意见反馈管理 ────────────────────────────────────────
+
+const feedbacks = ref<Feedback[]>([])
+const isLoadingFeedbacks = ref(false)
+const feedbackPage = ref(1)
+const feedbackPageSize = ref(20)
+const feedbackTotal = ref(0)
+const processingFeedbackId = ref<number | null>(null)
+const showProcessDialog = ref(false)
+const processForm = reactive({
+  processing_note: '',
+})
+const isProcessing = ref(false)
+
+
+async function loadFeedbacks() {
+  if (!clubId.value) return
+  isLoadingFeedbacks.value = true
+  try {
+    const data = await getLeaderFeedbacks(
+      clubId.value,
+      feedbackPage.value,
+      feedbackPageSize.value,
+    )
+    feedbacks.value = data.items
+    feedbackTotal.value = data.total
+  } catch {
+    feedbacks.value = []
+    feedbackTotal.value = 0
+  } finally {
+    isLoadingFeedbacks.value = false
+  }
+}
+
+
+function handleFeedbackPageChange(page: number) {
+  feedbackPage.value = page
+  loadFeedbacks()
+}
+
+
+function openProcessDialog(feedback: Feedback) {
+  processingFeedbackId.value = feedback.id
+  processForm.processing_note = ''
+  showProcessDialog.value = true
+}
+
+
+function onProcess(row: unknown) {
+  openProcessDialog(row as Feedback)
+}
+
+
+async function handleProcessFeedback() {
+  if (processingFeedbackId.value === null) return
+  isProcessing.value = true
+  try {
+    const updated = await processFeedback(processingFeedbackId.value, {
+      processing_note: processForm.processing_note.trim() || undefined,
+    })
+    ElMessage.success('反馈处理成功')
+    //替换列表中的反馈
+    const idx = feedbacks.value.findIndex(f => f.id === updated.id)
+    if (idx !== -1) feedbacks.value[idx] = updated
+    showProcessDialog.value = false
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('处理失败，请稍后重试')
+    }
+  } finally {
+    isProcessing.value = false
+  }
+}
+
+
 onMounted(() => {
   loadClub().then(() => {
     if (club.value) {
       loadMembers()
       loadAnnouncements()
       loadPosts()
+      loadFeedbacks()
     }
   })
 })
@@ -664,6 +744,111 @@ onMounted(() => {
             </el-table>
           </div>
         </el-card>
+
+        <!-- S14 反馈管理 -->
+        <el-card class="data-card" shadow="never" style="margin-top: 20px">
+          <template #header>
+            <span style="font-weight: 600">反馈管理</span>
+          </template>
+
+          <div v-if="isLoadingFeedbacks" v-loading="true" style="min-height: 120px" />
+
+          <template v-else-if="feedbacks.length === 0">
+            <el-empty description="暂无反馈" :image-size="60" />
+          </template>
+
+          <template v-else>
+            <el-table :data="feedbacks" stripe>
+              <el-table-column label="提交人" width="100">
+                <template #default="{ row }">
+                  {{ row.submitter.username }}
+                </template>
+              </el-table-column>
+              <el-table-column label="反馈内容" min-width="200">
+                <template #default="{ row }">
+                  <div style="white-space: pre-wrap; word-break: break-all">
+                    {{ row.content.length > 100 ? row.content.slice(0, 100) + '…' : row.content }}
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="row.status === '已处理' ? 'success' : 'warning'"
+                    effect="light"
+                    size="small"
+                  >
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="提交时间" width="160">
+                <template #default="{ row }">
+                  {{ formatDateTime(row.submitted_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="处理说明" min-width="120">
+                <template #default="{ row }">
+                  <span v-if="row.processing_note">{{ row.processing_note }}</span>
+                  <span v-else style="color: #c0c4cc">—</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="90">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.status === '待处理'"
+                    type="primary"
+                    size="small"
+                    text
+                    @click="onProcess(row)"
+                  >
+                    处理
+                  </el-button>
+                  <span v-else style="color: #c0c4cc; font-size: 13px">已处理</span>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div style="display: flex; justify-content: center; margin-top: 16px">
+              <el-pagination
+                v-model:current-page="feedbackPage"
+                :page-size="feedbackPageSize"
+                :total="feedbackTotal"
+                layout="total, prev, pager, next"
+                @current-change="handleFeedbackPageChange"
+              />
+            </div>
+          </template>
+        </el-card>
+
+        <!-- 处理反馈弹窗 -->
+        <el-dialog
+          v-model="showProcessDialog"
+          title="处理反馈"
+          width="480px"
+          :close-on-click-modal="false"
+        >
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 500">
+              处理说明（可选）
+            </label>
+            <el-input
+              v-model="processForm.processing_note"
+              type="textarea"
+              :rows="4"
+              maxlength="1000"
+              show-word-limit
+              placeholder="填写处理说明…"
+            />
+          </div>
+
+          <template #footer>
+            <el-button @click="showProcessDialog = false">取消</el-button>
+            <el-button type="primary" :loading="isProcessing" @click="handleProcessFeedback">
+              确认处理
+            </el-button>
+          </template>
+        </el-dialog>
 
         <!-- 公告弹窗 -->
         <el-dialog

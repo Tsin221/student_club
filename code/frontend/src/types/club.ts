@@ -336,3 +336,40 @@ export interface UpdateEvaluationInput {
   rating?: number
   comment?: string
 }
+
+// ── S14 意见反馈 ──────────────────────────────────────────────
+
+export interface Feedback {
+  id: number
+  submitter: {
+    id: number
+    username: string
+  }
+  club: {
+    id: number
+    name: string
+  }
+  content: string
+  submitted_at: string
+  status: '待处理' | '已处理'
+  processing_note: string | null
+}
+
+export interface FeedbacksResult {
+  items: Feedback[]
+}
+
+export interface PaginatedFeedbacks {
+  items: Feedback[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface CreateFeedbackInput {
+  content: string
+}
+
+export interface ProcessFeedbackInput {
+  processing_note?: string
+}

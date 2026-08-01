@@ -4,7 +4,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { createEvaluation, createPost, createReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
+import { createEvaluation, createFeedback, createPost, createReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
 import type { Announcement, Club, ClubEvaluation, Post, Recruitment, Reply } from '../types/club'
 
 
@@ -334,6 +334,53 @@ async function handleSubmitEvaluation() {
 }
 
 
+// ── S14 意见反馈 ──────────────────────────────────────────
+
+const showFeedbackDialog = ref(false)
+const feedbackForm = reactive({
+  content: '',
+})
+const feedbackFormRef = ref<FormInstance>()
+const isSubmittingFeedback = ref(false)
+
+const feedbackFormRules: FormRules<typeof feedbackForm> = {
+  content: [
+    { required: true, message: '请输入反馈内容', trigger: 'blur' },
+    { max: 5000, message: '反馈内容最多 5000 字', trigger: 'blur' },
+  ],
+}
+
+
+function openFeedbackDialog() {
+  feedbackForm.content = ''
+  feedbackFormRef.value?.resetFields()
+  showFeedbackDialog.value = true
+}
+
+
+async function handleSubmitFeedback() {
+  const valid = await feedbackFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  isSubmittingFeedback.value = true
+  try {
+    await createFeedback(clubId, {
+      content: feedbackForm.content.trim(),
+    })
+    ElMessage.success('反馈提交成功')
+    showFeedbackDialog.value = false
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('反馈提交失败，请稍后重试')
+    }
+  } finally {
+    isSubmittingFeedback.value = false
+  }
+}
+
+
 function goBack() {
   emit('navigate', '/student/clubs')
 }
@@ -579,6 +626,62 @@ onMounted(() => {
             <el-button @click="showEvalDialog = false">取消</el-button>
             <el-button type="primary" :loading="isSubmittingEval" @click="handleSubmitEvaluation">
               {{ myEvaluation ? '确认修改' : '提交评价' }}
+            </el-button>
+          </template>
+        </el-dialog>
+
+        <!-- S14 意见反馈 -->
+        <el-card
+          v-if="club.status === 'normal'"
+          class="profile-card"
+          shadow="never"
+          style="margin-top: 20px"
+        >
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span style="font-weight: 600">意见反馈</span>
+              <el-button type="primary" size="small" @click="openFeedbackDialog">
+                提交反馈
+              </el-button>
+            </div>
+          </template>
+
+          <div>
+            <p style="color: #909399; font-size: 13px; margin: 0">
+              欢迎向社团提交反馈建议，你可以在「我的反馈」中查看处理进度。
+            </p>
+          </div>
+        </el-card>
+
+        <!-- 反馈弹窗 -->
+        <el-dialog
+          v-model="showFeedbackDialog"
+          title="提交反馈"
+          width="480px"
+          :close-on-click-modal="false"
+        >
+          <el-form
+            ref="feedbackFormRef"
+            :model="feedbackForm"
+            :rules="feedbackFormRules"
+            label-position="top"
+          >
+            <el-form-item label="反馈内容" prop="content">
+              <el-input
+                v-model="feedbackForm.content"
+                type="textarea"
+                :rows="5"
+                maxlength="5000"
+                show-word-limit
+                placeholder="写下你对社团的意见或建议…"
+              />
+            </el-form-item>
+          </el-form>
+
+          <template #footer>
+            <el-button @click="showFeedbackDialog = false">取消</el-button>
+            <el-button type="primary" :loading="isSubmittingFeedback" @click="handleSubmitFeedback">
+              提交反馈
             </el-button>
           </template>
         </el-dialog>

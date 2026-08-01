@@ -9,12 +9,13 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubEvaluation, ClubMembership, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
+from .models import Announcement, Club, ClubEvaluation, ClubMembership, Feedback, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
     serialize_club,
     serialize_club_evaluation,
+    serialize_feedback,
     serialize_join_application,
     serialize_membership_for_admin,
     serialize_membership_for_leader,
@@ -3088,4 +3089,159 @@ def admin_evaluations(request):
     return success_response(
         data=paginated_response(serialized, page, page_size, total),
         message="查询成功",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S14：意见反馈
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/clubs/{club_id}/feedback ───────────────────────
+
+#当前在社成员提交反馈。
+@require_POST
+def create_feedback(request, club_id):
+    user, membership = require_club_member(request, club_id)
+
+    body = _parse_json_body(request)
+
+    #内容校验
+    content = body.get("content")
+    if not content or not isinstance(content, str) or content.strip() == "":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="反馈内容不能为空",
+            status=400,
+        )
+
+    content = content.strip()
+
+    #拒绝不允许的字段
+    allowed = {"content"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    feedback = Feedback.objects.create(
+        submitter=user,
+        club=membership.club,
+        content=content,
+    )
+
+    return success_response(
+        data=serialize_feedback(feedback),
+        message="反馈提交成功",
+        status=201,
+    )
+
+
+# ── GET /api/me/feedback ────────────────────────────────────
+
+#学生查看本人全部反馈（含历史）。
+@require_GET
+def my_feedbacks(request):
+    user = require_active_student(request)
+
+    feedbacks = (
+        Feedback.objects
+        .filter(submitter=user)
+        .select_related("submitter", "club")
+        .order_by("-id")
+    )
+
+    items = [serialize_feedback(f) for f in feedbacks]
+
+    return success_response(
+        data={"items": items},
+        message="查询成功",
+    )
+
+
+# ── GET /api/leader/clubs/{club_id}/feedback ─────────────────
+
+#负责人查看本人负责社团的全部反馈。
+@require_GET
+def leader_feedbacks(request, club_id):
+    require_leader_of_club(request, club_id)
+
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Feedback.objects
+        .filter(club_id=club_id)
+        .select_related("submitter", "club")
+        .order_by("-submitted_at")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+    serialized = [serialize_feedback(f) for f in items]
+
+    return success_response(
+        data=paginated_response(serialized, page, page_size, total),
+        message="查询成功",
+    )
+
+
+# ── POST /api/leader/feedback/{feedback_id}/process ──────────
+
+#负责人处理反馈。
+@require_POST
+def leader_process_feedback(request, feedback_id):
+    #查找反馈
+    try:
+        feedback = Feedback.objects.select_related("submitter", "club").get(id=feedback_id)
+    except Feedback.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="反馈不存在",
+            status=404,
+        )
+
+    #校验负责人身份（对反馈所属社团）
+    require_leader_of_club(request, feedback.club_id)
+
+    #检查是否已处理
+    if feedback.status != Feedback.Status.PENDING:
+        raise ApiError(
+            code="FEEDBACK_ALREADY_PROCESSED",
+            message="该反馈已处理",
+            status=409,
+        )
+
+    body = _parse_json_body(request)
+
+    #处理说明可选
+    processing_note = body.get("processing_note")
+    if processing_note is not None:
+        if not isinstance(processing_note, str):
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="处理说明必须为字符串",
+                status=400,
+            )
+        processing_note = processing_note.strip() or None
+
+    #拒绝不允许的字段
+    allowed = {"processing_note"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    feedback.status = Feedback.Status.PROCESSED
+    if processing_note is not None:
+        feedback.processing_note = processing_note
+    feedback.save()
+
+    return success_response(
+        data=serialize_feedback(feedback),
+        message="反馈处理成功",
     )

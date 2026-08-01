@@ -476,3 +476,53 @@ class ClubEvaluation(models.Model):
 
     def __str__(self):
         return f"评价 #{self.id}：{self.user.username} → {self.club.name}（{self.rating}★）"
+
+
+# ── S14：意见反馈 ────────────────────────────────────────────
+
+
+class Feedback(models.Model):
+
+    """意见反馈 —— 当前在社成员提交反馈，负责人查看并处理。"""
+
+    class Status(models.TextChoices):
+        PENDING = "待处理", "待处理"
+        PROCESSED = "已处理", "已处理"
+
+    id = models.BigAutoField(primary_key=True)
+    submitter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="feedbacks",
+        db_column="submitter_id",
+    )
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="feedbacks",
+        db_column="club_id",
+    )
+    content = models.TextField()
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    processing_note = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "feedback"
+        indexes = [
+            models.Index(
+                fields=["submitter"],
+                name="fb_submitter_idx",
+            ),
+            models.Index(
+                fields=["club", "status", "submitted_at"],
+                name="fb_club_status_time_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"反馈 #{self.id}：{self.submitter.username} → {self.club.name}（{self.status}）"

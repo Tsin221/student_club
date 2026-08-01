@@ -207,6 +207,28 @@ def serialize_club_evaluation(evaluation):
     }
 
 
+# ── S14：意见反馈 ────────────────────────────────────────────
+
+
+def serialize_feedback(feedback):
+    """将 Feedback 对象序列化为字典。"""
+    return {
+        "id": feedback.id,
+        "submitter": {
+            "id": feedback.submitter.id,
+            "username": feedback.submitter.username,
+        },
+        "club": {
+            "id": feedback.club.id,
+            "name": feedback.club.name,
+        },
+        "content": feedback.content,
+        "submitted_at": feedback.submitted_at.isoformat(),
+        "status": feedback.status,
+        "processing_note": feedback.processing_note,
+    }
+
+
 def serialize_post(post, current_user_id=None):
     """将 Post 对象序列化为字典。
 

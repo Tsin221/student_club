@@ -6,22 +6,27 @@ import type {
   CreateAnnouncementInput,
   CreateClubResult,
   CreateEvaluationInput,
+  CreateFeedbackInput,
   CreatePostInput,
   CreateReplyInput,
   DeleteAnnouncementResult,
   EvaluationsResult,
+  Feedback,
+  FeedbacksResult,
   LeaderMembersResult,
   MyMembership,
   MyMembershipsResult,
   PaginatedAnnouncements,
   PaginatedClubs,
   PaginatedEvaluations,
+  PaginatedFeedbacks,
   PaginatedMemberships,
   PaginatedPosts,
   PaginatedRecruitments,
   PaginatedReplies,
   PinPostInput,
   Post,
+  ProcessFeedbackInput,
   Recruitment,
   Reply,
   UpdateAnnouncementInput,
@@ -1244,4 +1249,140 @@ export async function getAdminEvaluations(
   }
 
   return data
+}
+
+// ═════════════════════════════════════════════════════════════
+// S14 意见反馈
+// ═════════════════════════════════════════════════════════════
+
+// ── 类型守卫 ──────────────────────────────────────────────────
+
+function isFeedback(value: unknown): value is Feedback {
+  if (typeof value !== 'object' || value === null) return false
+  const f = value as Record<string, unknown>
+  return (
+    typeof f.id === 'number' &&
+    typeof f.content === 'string' &&
+    typeof f.status === 'string' &&
+    typeof f.submitted_at === 'string' &&
+    typeof f.submitter === 'object' && f.submitter !== null &&
+    typeof f.club === 'object' && f.club !== null
+  )
+}
+
+function isPaginatedFeedbacks(value: unknown): value is PaginatedFeedbacks {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    Array.isArray(v.items) &&
+    typeof v.page === 'number' &&
+    typeof v.page_size === 'number' &&
+    typeof v.total === 'number'
+  )
+}
+
+
+function requireFeedback(value: unknown): Feedback {
+  if (!isFeedback(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的反馈数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+// ── POST /api/clubs/{club_id}/feedback — 提交反馈 ────────
+
+export async function createFeedback(
+  clubId: number,
+  data: CreateFeedbackInput,
+): Promise<Feedback> {
+  const result = await postJson<unknown>(
+    `/api/clubs/${clubId}/feedback`,
+    data,
+  )
+  return requireFeedback(result)
+}
+
+
+// ── GET /api/me/feedback — 查看本人全部反馈 ──────────────
+
+export async function getMyFeedbacks(): Promise<FeedbacksResult> {
+  const data = await request<unknown>('/api/me/feedback', { method: 'GET' })
+
+  if (typeof data !== 'object' || data === null || !('items' in data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的反馈列表格式不正确',
+      200,
+    )
+  }
+
+  const result = data as { items: unknown[] }
+  for (const item of result.items) {
+    if (!isFeedback(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的反馈数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data as FeedbacksResult
+}
+
+
+// ── GET /api/leader/clubs/{club_id}/feedback — 负责人查看社团反馈 ──
+
+export async function getLeaderFeedbacks(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedFeedbacks> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/leader/clubs/${clubId}/feedback?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedFeedbacks(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的反馈列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isFeedback(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的反馈数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+
+// ── POST /api/leader/feedback/{feedback_id}/process — 处理反馈 ──
+
+export async function processFeedback(
+  feedbackId: number,
+  data: ProcessFeedbackInput,
+): Promise<Feedback> {
+  const result = await postJson<unknown>(
+    `/api/leader/feedback/${feedbackId}/process`,
+    data,
+  )
+  return requireFeedback(result)
 }

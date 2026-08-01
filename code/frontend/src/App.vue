@@ -18,6 +18,7 @@ import StudentApplicationsView from './views/StudentApplicationsView.vue'
 import StudentClubDetailView from './views/StudentClubDetailView.vue'
 import StudentClubsView from './views/StudentClubsView.vue'
 import StudentEvaluationsView from './views/StudentEvaluationsView.vue'
+import StudentFeedbacksView from './views/StudentFeedbacksView.vue'
 import StudentMembershipsView from './views/StudentMembershipsView.vue'
 import StudentNotificationsView from './views/StudentNotificationsView.vue'
 import StudentProfileEditView from './views/StudentProfileEditView.vue'
@@ -82,6 +83,8 @@ const currentView = computed(() => {
       return StudentNotificationsView
     case '/student/evaluations':
       return StudentEvaluationsView
+    case '/student/feedbacks':
+      return StudentFeedbacksView
     case '/admin/users':
       return AdminUsersView
     case '/admin/clubs':
@@ -141,7 +144,7 @@ function syncRoute() {
 const VALID_PATHS = [
   '/login', '/register',
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
-  '/student/applications', '/student/notifications', '/student/evaluations',
+  '/student/applications', '/student/notifications', '/student/evaluations', '/student/feedbacks',
   '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
   '/admin/applications', '/admin/evaluations',
 ]

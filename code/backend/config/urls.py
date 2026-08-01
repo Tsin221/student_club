@@ -171,6 +171,24 @@ urlpatterns = [
     ),
     #管理员查看全部评价
     path("api/admin/evaluations", club_views.admin_evaluations),
+    # ── S14：意见反馈 ──
+    #成员提交反馈
+    path(
+        "api/clubs/<int:club_id>/feedback",
+        club_views.create_feedback,
+    ),
+    #学生查看本人全部反馈
+    path("api/me/feedback", club_views.my_feedbacks),
+    #负责人查看社团反馈
+    path(
+        "api/leader/clubs/<int:club_id>/feedback",
+        club_views.leader_feedbacks,
+    ),
+    #负责人处理反馈
+    path(
+        "api/leader/feedback/<int:feedback_id>/process",
+        club_views.leader_process_feedback,
+    ),
 ]
 
 #开发环境媒体文件服务
