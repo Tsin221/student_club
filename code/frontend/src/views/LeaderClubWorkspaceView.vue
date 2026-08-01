@@ -6,6 +6,7 @@ import { ApiRequestError } from '../api/auth'
 import {
   createAnnouncement,
   deleteAnnouncement,
+  deletePost,
   getClubDetail,
   getLeaderAnnouncements,
   getLeaderFeedbacks,
@@ -329,6 +330,37 @@ async function handleTogglePin(post: Post) {
 
 function onTogglePin(row: unknown) {
   handleTogglePin(row as Post)
+}
+
+
+async function handleDeletePost(post: Post) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除帖子「${post.title}」吗？删除后成员将不再可见。`,
+      '确认删除',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+
+  try {
+    await deletePost(post.id)
+    ElMessage.success('帖子已删除')
+    // 更新本地列表：将状态改为已删除
+    const idx = posts.value.findIndex(p => p.id === post.id)
+    if (idx !== -1) {
+      posts.value[idx] = { ...posts.value[idx], status: '已删除' }
+    }
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError ? error.message : '删除失败',
+    )
+  }
 }
 
 
@@ -727,7 +759,7 @@ onMounted(() => {
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="120">
+              <el-table-column label="操作" width="160">
                 <template #default="{ row }">
                   <el-button
                     v-if="row.status === '正常'"
@@ -738,6 +770,15 @@ onMounted(() => {
                     @click="onTogglePin(row)"
                   >
                     {{ row.is_pinned ? '取消置顶' : '置顶' }}
+                  </el-button>
+                  <el-button
+                    v-if="row.status === '正常'"
+                    type="danger"
+                    size="small"
+                    text
+                    @click="handleDeletePost(row as Post)"
+                  >
+                    删除
                   </el-button>
                 </template>
               </el-table-column>

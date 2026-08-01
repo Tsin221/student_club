@@ -3535,3 +3535,305 @@ def leader_process_report(request, report_id):
         data=response_data,
         message="举报处理成功",
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S16：内容逻辑删除和管理员内容管理
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── DELETE /api/posts/{post_id} ────────────────────────────
+
+#作者、负责人或管理员逻辑删除帖子。
+def _delete_post(request, post_id):
+    if request.method != "DELETE":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        post = Post.objects.select_related("club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="POST_DELETED",
+            message="该帖子已删除",
+            status=409,
+        )
+
+    # 按优先级尝试授权：作者（仍有内部权限）→ 负责人 → 管理员
+    user = request.user
+
+    # 1）管理员可删除全部帖子
+    if user.is_authenticated:
+        user_model = get_user_model()
+        if user.platform_role == user_model.PlatformRole.ADMIN:
+            post.status = Post.Status.DELETED
+            post.save()
+            return success_response(
+                data={"id": post.id, "status": post.status},
+                message="帖子已删除",
+            )
+
+    # 2）作者删除 —— 必须在目标社团仍有内部权限
+    if user.is_authenticated and user.id == post.author_id:
+        try:
+            membership = ClubMembership.objects.get(user=user, club_id=post.club_id)
+        except ClubMembership.DoesNotExist:
+            raise ApiError(
+                code="MEMBERSHIP_INACTIVE",
+                message="你已不是该社团的成员，无法删除帖子",
+                status=403,
+            )
+        if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+            raise ApiError(
+                code="MEMBERSHIP_INACTIVE",
+                message="你已不是该社团的成员，无法删除帖子",
+                status=403,
+            )
+        # 社团也必须正常
+        if membership.club.status != Club.Status.ACTIVE:
+            raise ApiError(
+                code="CLUB_CANCELLED",
+                message="社团已注销，当前操作不可用",
+                status=409,
+            )
+        post.status = Post.Status.DELETED
+        post.save()
+        return success_response(
+            data={"id": post.id, "status": post.status},
+            message="帖子已删除",
+        )
+
+    # 3）负责人删除（只对确实是某社团负责人的用户透传 NOT_CLUB_LEADER）
+    if user.is_authenticated:
+        try:
+            require_leader_of_club(request, post.club_id)
+        except ApiError as e:
+            # 如果用户是其他社团的负责人，透传 NOT_CLUB_LEADER
+            if e.code == "NOT_CLUB_LEADER" and ClubMembership.objects.filter(
+                user=user,
+                club_role=ClubMembership.ClubRole.LEADER,
+                member_status=ClubMembership.MemberStatus.ACTIVE,
+            ).exists():
+                raise
+        else:
+            post.status = Post.Status.DELETED
+            post.save()
+            return success_response(
+                data={"id": post.id, "status": post.status},
+                message="帖子已删除",
+            )
+
+    # 4）未认证 → 401
+    if not user.is_authenticated:
+        raise ApiError(
+            code="UNAUTHENTICATED",
+            message="请先登录",
+            status=401,
+        )
+
+    # 5）都不满足 → 403
+    raise ApiError(
+        code="FORBIDDEN",
+        message="你没有权限删除该帖子",
+        status=403,
+    )
+
+
+# ── DELETE /api/replies/{reply_id} ──────────────────────────
+
+#作者、负责人或管理员逻辑删除回复。
+def _delete_reply(request, reply_id):
+    if request.method != "DELETE":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    try:
+        reply = Reply.objects.select_related("post", "author").get(id=reply_id)
+    except Reply.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="回复不存在",
+            status=404,
+        )
+
+    if reply.status == Reply.Status.DELETED:
+        raise ApiError(
+            code="REPLY_DELETED",
+            message="该回复已删除",
+            status=409,
+        )
+
+    user = request.user
+
+    # 1）管理员可删除全部回复
+    if user.is_authenticated:
+        user_model = get_user_model()
+        if user.platform_role == user_model.PlatformRole.ADMIN:
+            reply.status = Reply.Status.DELETED
+            reply.save()
+            return success_response(
+                data={"id": reply.id, "status": reply.status},
+                message="回复已删除",
+            )
+
+    # 2）作者删除 —— 父帖不能已删除，且必须在目标社团仍有内部权限
+    if user.is_authenticated and user.id == reply.author_id:
+        if reply.post.status == Post.Status.DELETED:
+            raise ApiError(
+                code="POST_DELETED",
+                message="该回复所属的帖子已删除",
+                status=409,
+            )
+        try:
+            membership = ClubMembership.objects.get(
+                user=user, club_id=reply.post.club_id,
+            )
+        except ClubMembership.DoesNotExist:
+            raise ApiError(
+                code="MEMBERSHIP_INACTIVE",
+                message="你已不是该社团的成员，无法删除回复",
+                status=403,
+            )
+        if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+            raise ApiError(
+                code="MEMBERSHIP_INACTIVE",
+                message="你已不是该社团的成员，无法删除回复",
+                status=403,
+            )
+        if membership.club.status != Club.Status.ACTIVE:
+            raise ApiError(
+                code="CLUB_CANCELLED",
+                message="社团已注销，当前操作不可用",
+                status=409,
+            )
+        reply.status = Reply.Status.DELETED
+        reply.save()
+        return success_response(
+            data={"id": reply.id, "status": reply.status},
+            message="回复已删除",
+        )
+
+    # 3）负责人删除（只对确实是某社团负责人的用户透传 NOT_CLUB_LEADER）
+    if user.is_authenticated:
+        try:
+            require_leader_of_club(request, reply.post.club_id)
+        except ApiError as e:
+            if e.code == "NOT_CLUB_LEADER" and ClubMembership.objects.filter(
+                user=user,
+                club_role=ClubMembership.ClubRole.LEADER,
+                member_status=ClubMembership.MemberStatus.ACTIVE,
+            ).exists():
+                raise
+        else:
+            reply.status = Reply.Status.DELETED
+            reply.save()
+            return success_response(
+                data={"id": reply.id, "status": reply.status},
+                message="回复已删除",
+            )
+
+    # 4）未认证 → 401
+    if not user.is_authenticated:
+        raise ApiError(
+            code="UNAUTHENTICATED",
+            message="请先登录",
+            status=401,
+        )
+
+    # 5）都不满足 → 403
+    raise ApiError(
+        code="FORBIDDEN",
+        message="你没有权限删除该回复",
+        status=403,
+    )
+
+
+# /api/posts/{post_id} 方法分发（GET + DELETE）。
+def post_detail_or_delete(request, post_id):
+    if request.method == "GET":
+        return post_detail(request, post_id)
+    if request.method == "DELETE":
+        return _delete_post(request, post_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# /api/replies/{reply_id}（DELETE）。
+def reply_delete(request, reply_id):
+    if request.method == "DELETE":
+        return _delete_reply(request, reply_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ── GET /api/admin/posts ───────────────────────────────────
+
+#管理员查看全部帖子（含已删除）。
+@require_GET
+def admin_list_posts(request):
+    require_admin(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Post.objects
+        .select_related("author", "club")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_post(p, current_user_id=request.user.id) for p in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="帖子列表获取成功",
+    )
+
+
+# ── GET /api/admin/replies ─────────────────────────────────
+
+#管理员查看全部回复（含已删除）。
+@require_GET
+def admin_list_replies(request):
+    require_admin(request)
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        Reply.objects
+        .select_related("author", "post")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+
+    return success_response(
+        data=paginated_response(
+            [serialize_reply(r) for r in items],
+            page,
+            page_size,
+            total,
+        ),
+        message="回复列表获取成功",
+    )

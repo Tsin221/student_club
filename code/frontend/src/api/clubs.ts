@@ -1476,3 +1476,99 @@ export async function processReport(
   )
   return requireContentReport(result)
 }
+
+// ═════════════════════════════════════════════════════════════
+// S16 内容逻辑删除与管理员内容管理
+// ═════════════════════════════════════════════════════════════
+
+import type { DeletePostResult, DeleteReplyResult } from '../types/club'
+
+//DELETE /api/posts/{post_id} — 逻辑删除帖子
+export async function deletePost(
+  postId: number,
+): Promise<DeletePostResult> {
+  const data = await deleteRequest<unknown>(
+    `/api/posts/${postId}`,
+  )
+  return data as DeletePostResult
+}
+
+//DELETE /api/replies/{reply_id} — 逻辑删除回复
+export async function deleteReply(
+  replyId: number,
+): Promise<DeleteReplyResult> {
+  const data = await deleteRequest<unknown>(
+    `/api/replies/${replyId}`,
+  )
+  return data as DeleteReplyResult
+}
+
+//GET /api/admin/posts — 管理员查看全部帖子（含已删除）
+export async function getAdminPosts(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedPosts> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/posts?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedPosts(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的帖子列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isPost(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的帖子数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}
+
+//GET /api/admin/replies — 管理员查看全部回复（含已删除）
+export async function getAdminReplies(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedReplies> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/replies?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedReplies(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的回复列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isReply(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的回复数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
+}

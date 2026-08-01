@@ -202,6 +202,18 @@ onMounted(() => {
         >
           全部评价
         </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/posts')"
+        >
+          全部帖子
+        </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/replies')"
+        >
+          全部回复
+        </el-button>
       </div>
 
       <!-- 错误状态 -->

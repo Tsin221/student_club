@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
-import { ApiRequestError } from '../api/auth'
-import { createEvaluation, createFeedback, createPost, createPostReport, createReply, createReplyReport, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
+import { ApiRequestError, getProfile } from '../api/auth'
+import { createEvaluation, createFeedback, createPost, createPostReport, createReply, createReplyReport, deletePost, deleteReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
 import type { Announcement, Club, ClubEvaluation, Post, Recruitment, Reply } from '../types/club'
 
 
@@ -25,6 +25,7 @@ const isLoading = ref(true)
 const errorMessage = ref('')
 const club = ref<Club | null>(null)
 const clubId = parseClubId()
+const currentUserId = ref<number | null>(null)
 
 	// ── 招新 ──────────────────────────────────────────────────
 
@@ -505,8 +506,76 @@ async function handleSubmitApplication() {
   }
 }
 
+// ── S16 删除 ──────────────────────────────────────────────
 
-onMounted(() => {
+async function handleDeletePost(post: Post) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除帖子「${post.title}」吗？删除后成员将不再可见。`,
+      '确认删除',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return // 用户取消
+  }
+
+  try {
+    await deletePost(post.id)
+    ElMessage.success('帖子已删除')
+    // 从列表中移除该帖子（逻辑删除后普通成员不可见）
+    posts.value = posts.value.filter(p => p.id !== post.id)
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError ? error.message : '删除失败',
+    )
+  }
+}
+
+async function handleDeleteReply(postId: number, reply: Reply) {
+  try {
+    await ElMessageBox.confirm(
+      '确定要删除该回复吗？',
+      '确认删除',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+
+  try {
+    await deleteReply(reply.id)
+    ElMessage.success('回复已删除')
+    // 从本地 repliesMap 中移除
+    const currentReplies = repliesMap.value[postId]
+    if (currentReplies) {
+      repliesMap.value = {
+        ...repliesMap.value,
+        [postId]: currentReplies.filter(r => r.id !== reply.id),
+      }
+    }
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError ? error.message : '删除失败',
+    )
+  }
+}
+
+
+onMounted(async () => {
+  try {
+    const profile = await getProfile()
+    currentUserId.value = profile.id
+  } catch (_) {
+    // 获取当前用户信息失败，删除按钮将不显示
+  }
   loadDetail().then(() => {
     if (club.value && club.value.status === 'normal') {
       loadRecruitments()
@@ -833,6 +902,14 @@ onMounted(() => {
                 >
                   举报
                 </el-button>
+                <el-button
+                  v-if="p.author.id === currentUserId"
+                  type="danger"
+                  size="small"
+                  @click="handleDeletePost(p)"
+                >
+                  删除
+                </el-button>
               </div>
 
               <!-- S11 回复区域 -->
@@ -870,6 +947,16 @@ onMounted(() => {
                         @click="openReportReplyDialog(reply)"
                       >
                         举报
+                      </el-button>
+                      <el-button
+                        v-if="reply.author.id === currentUserId"
+                        type="danger"
+                        size="small"
+                        text
+                        style="flex-shrink: 0"
+                        @click="handleDeleteReply(p.id, reply)"
+                      >
+                        删除
                       </el-button>
                     </div>
                   </div>

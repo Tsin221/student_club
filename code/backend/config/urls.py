@@ -137,8 +137,8 @@ urlpatterns = [
         "api/clubs/<int:club_id>/posts",
         club_views.posts_list_or_create,
     ),
-    #帖子详情
-    path("api/posts/<int:post_id>", club_views.post_detail),
+    #帖子详情与逻辑删除
+    path("api/posts/<int:post_id>", club_views.post_detail_or_delete),
     #负责人置顶/取消置顶帖子
     path(
         "api/leader/posts/<int:post_id>/pin",
@@ -210,6 +210,12 @@ urlpatterns = [
         "api/leader/reports/<int:report_id>/process",
         club_views.leader_process_report,
     ),
+    # ── S16：内容逻辑删除和管理员内容管理 ──
+    #逻辑删除回复
+    path("api/replies/<int:reply_id>", club_views.reply_delete),
+    #管理员查看全部帖子和回复
+    path("api/admin/posts", club_views.admin_list_posts),
+    path("api/admin/replies", club_views.admin_list_replies),
 ]
 
 #开发环境媒体文件服务

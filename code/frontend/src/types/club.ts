@@ -409,3 +409,15 @@ export interface PaginatedReports {
   page_size: number
   total: number
 }
+
+// ── S16：内容逻辑删除 ──
+
+export interface DeletePostResult {
+  id: number
+  status: PostStatus
+}
+
+export interface DeleteReplyResult {
+  id: number
+  status: ReplyStatus
+}

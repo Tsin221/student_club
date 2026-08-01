@@ -7,7 +7,9 @@ import AdminClubDetailView from './views/AdminClubDetailView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
 import AdminEvaluationsView from './views/AdminEvaluationsView.vue'
 import AdminMembershipsView from './views/AdminMembershipsView.vue'
+import AdminPostsView from './views/AdminPostsView.vue'
 import AdminRecruitmentsView from './views/AdminRecruitmentsView.vue'
+import AdminRepliesView from './views/AdminRepliesView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
 import LeaderApplicationsView from './views/LeaderApplicationsView.vue'
 import LeaderClubWorkspaceView from './views/LeaderClubWorkspaceView.vue'
@@ -103,6 +105,10 @@ const currentView = computed(() => {
       return AdminApplicationsView
     case '/admin/evaluations':
       return AdminEvaluationsView
+    case '/admin/posts':
+      return AdminPostsView
+    case '/admin/replies':
+      return AdminRepliesView
     case '/login':
     default: {
       if (isStudentClubDetail(path)) {
@@ -155,7 +161,7 @@ const VALID_PATHS = [
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
   '/student/applications', '/student/notifications', '/student/evaluations', '/student/feedbacks',
   '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
-  '/admin/applications', '/admin/evaluations',
+  '/admin/applications', '/admin/evaluations', '/admin/posts', '/admin/replies',
 ]
 
 function isValidPath(path: string): boolean {
