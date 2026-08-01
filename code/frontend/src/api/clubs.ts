@@ -1081,3 +1081,27 @@ export async function createReply(
   )
   return requireReply(result)
 }
+
+
+// ═════════════════════════════════════════════════════════════
+// S12 帖子点赞 API
+// ═════════════════════════════════════════════════════════════
+
+
+//POST /api/posts/{post_id}/like — 点赞帖子
+export async function likePost(postId: number): Promise<Post> {
+  const result = await postJson<unknown>(
+    `/api/posts/${postId}/like`,
+    {},
+  )
+  return requirePost(result)
+}
+
+
+//DELETE /api/posts/{post_id}/like — 取消点赞
+export async function unlikePost(postId: number): Promise<Post> {
+  const result = await deleteRequest<unknown>(
+    `/api/posts/${postId}/like`,
+  )
+  return requirePost(result)
+}

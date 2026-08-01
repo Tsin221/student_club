@@ -150,6 +150,12 @@ urlpatterns = [
         "api/posts/<int:post_id>/replies",
         club_views.replies_list_or_create,
     ),
+    # ── S12：帖子点赞 ──
+    #成员点赞/取消点赞帖子
+    path(
+        "api/posts/<int:post_id>/like",
+        club_views.post_like_create_or_delete,
+    ),
 ]
 
 #开发环境媒体文件服务

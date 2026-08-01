@@ -4,7 +4,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { createPost, createReply, getClubDetail, getPublicRecruitments, listAnnouncements, listPosts, listReplies } from '../api/clubs'
+import { createPost, createReply, getClubDetail, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost } from '../api/clubs'
 import type { Announcement, Club, Post, Recruitment, Reply } from '../types/club'
 
 
@@ -221,6 +221,37 @@ async function handleCreateReply(postId: number) {
     }
   } finally {
     isSubmittingReply.value = { ...isSubmittingReply.value, [postId]: false }
+  }
+}
+
+
+// ── S12 点赞 ──────────────────────────────────────────────
+
+//点赞数实时更新时使用 loading 映射防止重复点击
+const isTogglingLike = ref<Record<number, boolean>>({})
+
+async function handleToggleLike(post: Post) {
+  if (isTogglingLike.value[post.id]) return
+  isTogglingLike.value = { ...isTogglingLike.value, [post.id]: true }
+  try {
+    if (post.liked_by_me) {
+      const updated = await unlikePost(post.id)
+      //替换列表中对应帖子
+      const idx = posts.value.findIndex(p => p.id === post.id)
+      if (idx !== -1) posts.value[idx] = updated
+    } else {
+      const updated = await likePost(post.id)
+      const idx = posts.value.findIndex(p => p.id === post.id)
+      if (idx !== -1) posts.value[idx] = updated
+    }
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('操作失败，请稍后重试')
+    }
+  } finally {
+    isTogglingLike.value = { ...isTogglingLike.value, [post.id]: false }
   }
 }
 
@@ -477,6 +508,19 @@ onMounted(() => {
                 </span>
               </div>
               <p class="post-content">{{ p.content }}</p>
+
+              <!-- S12 点赞 -->
+              <div class="post-actions">
+                <el-button
+                  :type="p.liked_by_me ? 'danger' : 'default'"
+                  size="small"
+                  :icon="p.liked_by_me ? undefined : undefined"
+                  :loading="isTogglingLike[p.id]"
+                  @click="handleToggleLike(p)"
+                >
+                  {{ p.liked_by_me ? '❤️' : '🤍' }} {{ p.like_count }}
+                </el-button>
+              </div>
 
               <!-- S11 回复区域 -->
               <div class="post-replies-section">
@@ -789,6 +833,10 @@ onMounted(() => {
   line-height: 1.7;
   white-space: pre-wrap;
   margin: 0;
+}
+
+.post-actions {
+  margin-top: 8px;
 }
 
 .post-replies-section {

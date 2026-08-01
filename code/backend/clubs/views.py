@@ -9,7 +9,7 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, Recruitment, Reply
+from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
@@ -2772,6 +2772,96 @@ def replies_list_or_create(request, post_id):
         return list_replies(request, post_id)
     if request.method == "POST":
         return create_reply(request, post_id)
+    raise ApiError(
+        code="INVALID_REQUEST",
+        message="不支持的请求方法",
+        status=405,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S12：帖子点赞
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/posts/{post_id}/like ──────────────────────────
+
+#当前在社成员点赞正常帖子。
+def _member_like_post(request, post_id):
+    user, _membership = _require_post_accessible(request, post_id)
+
+    #检查是否已点赞
+    if PostLike.objects.filter(user=user, post_id=post_id).exists():
+        raise ApiError(
+            code="DUPLICATE_LIKE",
+            message="你已经点赞过该帖子",
+            status=409,
+        )
+
+    PostLike.objects.create(user=user, post_id=post_id)
+    post = Post.objects.select_related("author").get(id=post_id)
+
+    return success_response(
+        data=serialize_post(post, current_user_id=user.id),
+        message="点赞成功",
+        status=201,
+    )
+
+
+# ── DELETE /api/posts/{post_id}/like ────────────────────────
+
+#当前在社成员取消点赞。
+def _member_unlike_post(request, post_id):
+    user, _membership = _require_post_accessible(request, post_id)
+
+    try:
+        like = PostLike.objects.get(user=user, post_id=post_id)
+    except PostLike.DoesNotExist:
+        raise ApiError(
+            code="LIKE_NOT_FOUND",
+            message="你尚未点赞该帖子",
+            status=404,
+        )
+
+    like.delete()
+    post = Post.objects.select_related("author").get(id=post_id)
+
+    return success_response(
+        data=serialize_post(post, current_user_id=user.id),
+        message="已取消点赞",
+    )
+
+
+# ── 守卫：校验帖子存在、用户为成员且帖子未删除 ──────────
+
+def _require_post_accessible(request, post_id):
+    """校验帖子存在、当前用户为帖子所属社团的当前在社成员且帖子未删除。
+    通过则返回 (user, membership)。"""
+    try:
+        post = Post.objects.select_related("club").only("club_id", "status").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="POST_DELETED",
+            message="该帖子已删除，无法操作",
+            status=409,
+        )
+
+    return require_club_member(request, post.club_id)
+
+
+# /api/posts/{post_id}/like 方法分发。
+def post_like_create_or_delete(request, post_id):
+    if request.method == "POST":
+        return _member_like_post(request, post_id)
+    if request.method == "DELETE":
+        return _member_unlike_post(request, post_id)
     raise ApiError(
         code="INVALID_REQUEST",
         message="不支持的请求方法",

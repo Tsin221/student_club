@@ -349,6 +349,41 @@ class Post(models.Model):
         return f"{self.title}（{self.club.name}）"
 
 
+# ── S12：帖子点赞 ────────────────────────────────────────────
+
+
+class PostLike(models.Model):
+
+    """帖子点赞 —— 同一用户对同一帖子最多保留一条点赞关系。"""
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="liked_posts",
+        db_column="user_id",
+    )
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name="post_likes",
+        db_column="post_id",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "post_like"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "post"],
+                name="unique_user_post_like",
+            ),
+        ]
+
+    def __str__(self):
+        return f"用户 #{self.user_id} 点赞帖子 #{self.post_id}"
+
+
 # ── S11：帖子回复 ────────────────────────────────────────────
 
 

@@ -193,15 +193,11 @@ def serialize_post(post, current_user_id=None):
     - S10 阶段 post_like 表尚未建立，暂返回 0／False。
     - S12 引入 post_like 后改为从关联表实时统计。
     """
-    like_count = 0
-    liked_by_me = False
-
-    # S12 启用后替换为：
-    # like_count = post.post_likes.count()
-    # liked_by_me = (
-    #     current_user_id is not None
-    #     and post.post_likes.filter(user_id=current_user_id).exists()
-    # )
+    like_count = post.post_likes.count()
+    liked_by_me = (
+        current_user_id is not None
+        and post.post_likes.filter(user_id=current_user_id).exists()
+    )
 
     return {
         "id": post.id,
