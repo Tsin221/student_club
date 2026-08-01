@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError, getProfile } from '../api/auth'
-import { createEvaluation, createFeedback, createPost, createPostReport, createReply, createReplyReport, deletePost, deleteReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
+import { createEvaluation, createFeedback, createPost, createPostReport, createReply, createReplyReport, deletePost, deleteReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, postAi, unlikePost, updateEvaluation } from '../api/clubs'
 import type { Announcement, Club, ClubEvaluation, Post, Recruitment, Reply } from '../types/club'
 
 
@@ -568,6 +568,55 @@ async function handleDeleteReply(postId: number, reply: Reply) {
   }
 }
 
+// ── S17 帖子 AI ──────────────────────────────────────────────
+
+const showAiDialog = ref(false)
+const aiTargetPost = ref<Post | null>(null)
+const aiOperation = ref<'总结' | '提取主要观点' | '问答'>('总结')
+const aiQuestion = ref('')
+const aiAnswer = ref('')
+const aiTruncated = ref(false)
+const aiWarning = ref('')
+const isCallingAi = ref(false)
+
+function openAiDialog(post: Post) {
+  aiTargetPost.value = post
+  aiOperation.value = '总结'
+  aiQuestion.value = ''
+  aiAnswer.value = ''
+  aiTruncated.value = false
+  aiWarning.value = ''
+  showAiDialog.value = true
+}
+
+async function handleCallAi() {
+  if (!aiTargetPost.value) return
+
+  isCallingAi.value = true
+  aiAnswer.value = ''
+  aiTruncated.value = false
+  aiWarning.value = ''
+  try {
+    const result = await postAi(aiTargetPost.value.id, {
+      operation: aiOperation.value,
+      question: aiOperation.value === '问答' ? aiQuestion.value.trim() : undefined,
+    })
+    aiAnswer.value = result.answer
+    aiTruncated.value = result.truncated
+    if (result.warning) {
+      aiWarning.value = result.warning
+    }
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('AI 调用失败，请稍后重试')
+    }
+  } finally {
+    isCallingAi.value = false
+  }
+}
+
 
 onMounted(async () => {
   try {
@@ -910,6 +959,14 @@ onMounted(async () => {
                 >
                   删除
                 </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  plain
+                  @click="openAiDialog(p)"
+                >
+                  AI
+                </el-button>
               </div>
 
               <!-- S11 回复区域 -->
@@ -1168,6 +1225,86 @@ onMounted(async () => {
       </el-button>
     </template>
   </el-dialog>
+
+  <!-- S17 AI 对话框 -->
+  <el-dialog
+    v-model="showAiDialog"
+    title="AI 助手"
+    width="560px"
+    :close-on-click-modal="false"
+    @closed="aiAnswer = ''"
+  >
+    <template v-if="aiTargetPost">
+      <div style="margin-bottom: 16px">
+        <p style="margin: 0 0 4px; font-weight: 500; font-size: 13px; color: #606266">目标帖子</p>
+        <p style="margin: 0; color: #303133">{{ aiTargetPost.title }}</p>
+      </div>
+
+      <el-form label-position="top">
+        <el-form-item label="操作类型">
+          <el-radio-group v-model="aiOperation" :disabled="isCallingAi">
+            <el-radio value="总结">总结</el-radio>
+            <el-radio value="提取主要观点">提取主要观点</el-radio>
+            <el-radio value="问答">问答</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item v-if="aiOperation === '问答'" label="你的问题">
+          <el-input
+            v-model="aiQuestion"
+            type="textarea"
+            :rows="2"
+            maxlength="500"
+            show-word-limit
+            placeholder="请输入你想问的问题…"
+            :disabled="isCallingAi"
+          />
+        </el-form-item>
+      </el-form>
+
+      <!-- AI 回答区域 -->
+      <div v-if="aiAnswer" class="ai-answer-card">
+        <div class="ai-answer-header">
+          <span class="ai-answer-label">AI 回答</span>
+          <el-tag v-if="aiTruncated" type="warning" size="small" effect="light">
+            内容已截断
+          </el-tag>
+        </div>
+        <p v-if="aiWarning" class="ai-answer-warning">{{ aiWarning }}</p>
+        <div class="ai-answer-body">{{ aiAnswer }}</div>
+      </div>
+
+      <div v-if="isCallingAi" style="text-align: center; padding: 24px 0">
+        <el-icon class="is-loading" :size="24">
+          <svg viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+            <path d="M512 64a32 32 0 0 1 32 32v192a32 32 0 0 1-64 0V96a32 32 0 0 1 32-32zm0 640a32 32 0 0 1 32 32v192a32 32 0 1 1-64 0V736a32 32 0 0 1 32-32zm448-192a32 32 0 0 1-32 32H736a32 32 0 1 1 0-64h192a32 32 0 0 1 32 32zm-640 0a32 32 0 0 1-32 32H96a32 32 0 0 1 0-64h192a32 32 0 0 1 32 32zM195.2 195.2a32 32 0 0 1 45.248 0L376.32 331.008a32 32 0 0 1-45.248 45.248L195.2 240.448a32 32 0 0 1 0-45.248zm452.544 452.544a32 32 0 0 1 45.248 0L828.8 783.552a32 32 0 0 1-45.248 45.248L647.744 692.992a32 32 0 0 1 0-45.248zM828.8 195.264a32 32 0 0 1 0 45.184L692.992 376.32a32 32 0 0 1-45.248-45.248l135.808-135.808a32 32 0 0 1 45.248 0zm-452.544 452.48a32 32 0 0 1 0 45.248L240.448 828.8a32 32 0 0 1-45.248-45.248L331.008 647.744a32 32 0 0 1 45.248 0z"/>
+          </svg>
+        </el-icon>
+        <p style="color: #909399; margin-top: 8px">AI 正在生成回答…</p>
+      </div>
+    </template>
+
+    <template #footer>
+      <el-button @click="showAiDialog = false">关闭</el-button>
+      <el-button
+        v-if="!aiAnswer"
+        type="primary"
+        :loading="isCallingAi"
+        :disabled="aiOperation === '问答' && !aiQuestion.trim()"
+        @click="handleCallAi"
+      >
+        问 AI
+      </el-button>
+      <el-button
+        v-else
+        type="primary"
+        :loading="isCallingAi"
+        @click="handleCallAi"
+      >
+        重新生成
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -1358,5 +1495,46 @@ onMounted(async () => {
   line-height: 1.6;
   margin: 0;
   white-space: pre-wrap;
+}
+
+/* ── S17 AI ──────────────────────────────────────────────── */
+
+.ai-answer-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #f0f7ff;
+  border: 1px solid #d0e3ff;
+  border-radius: 8px;
+}
+
+.ai-answer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ai-answer-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: #409eff;
+}
+
+.ai-answer-warning {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  background: #fdf6ec;
+  border-left: 3px solid #e6a23c;
+  color: #b88230;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 0 4px 4px 0;
+}
+
+.ai-answer-body {
+  color: #303133;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  font-size: 14px;
 }
 </style>

@@ -421,3 +421,20 @@ export interface DeleteReplyResult {
   id: number
   status: ReplyStatus
 }
+
+// ── S17：帖子 AI ──────────────────────────────────────────────────
+
+export type AiOperation = '总结' | '提取主要观点' | '问答'
+
+export const AI_OPERATIONS: AiOperation[] = ['总结', '提取主要观点', '问答']
+
+export interface PostAiInput {
+  operation: AiOperation
+  question?: string
+}
+
+export interface PostAiResponse {
+  answer: string
+  truncated: boolean
+  warning?: string
+}

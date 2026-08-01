@@ -1572,3 +1572,39 @@ export async function getAdminReplies(
 
   return data
 }
+
+// ═════════════════════════════════════════════════════════════
+// S17 帖子 AI
+// ═════════════════════════════════════════════════════════════
+
+import type { PostAiInput, PostAiResponse } from '../types/club'
+
+function isPostAiResponse(value: unknown): value is PostAiResponse {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.answer === 'string'
+    && typeof v.truncated === 'boolean'
+  )
+}
+
+//POST /api/posts/{post_id}/ai — 对帖子使用 AI
+export async function postAi(
+  postId: number,
+  input: PostAiInput,
+): Promise<PostAiResponse> {
+  const data = await postJson<unknown>(
+    `/api/posts/${postId}/ai`,
+    input,
+  )
+
+  if (!isPostAiResponse(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的 AI 回答格式不正确',
+      200,
+    )
+  }
+
+  return data
+}

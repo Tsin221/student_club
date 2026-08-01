@@ -3837,3 +3837,192 @@ def admin_list_replies(request):
         ),
         message="回复列表获取成功",
     )
+
+
+# ── S17：帖子 AI ──────────────────────────────────────────────
+
+#AI 操作白名单
+_VALID_AI_OPERATIONS = {"总结", "提取主要观点", "问答"}
+
+#DeepSeek 系统提示
+_AI_SYSTEM_PROMPT = (
+    "你是一个社团帖子助手。请严格基于用户提供的帖子内容、标题和回复来回答问题。"
+    "如果问题无法根据当前帖子内容确定答案，请直接回复「根据当前帖子内容无法确定」。"
+    "不要编造信息，不要使用外部知识。回复使用中文。"
+)
+
+
+def _call_deepseek(system_prompt: str, user_prompt: str) -> str:
+    """调用 DeepSeek API 并返回回答文本。"""
+    from django.conf import settings
+    import json as _json
+    from urllib import request, error as urllib_error
+
+    api_url = settings.DEEPSEEK_API_URL
+    api_key = settings.DEEPSEEK_API_KEY
+    model = settings.DEEPSEEK_MODEL
+
+    if not api_key:
+        raise ApiError(
+            code="DEEPSEEK_CALL_FAILED",
+            message="DeepSeek API 密钥未配置",
+            status=502,
+        )
+
+    payload = _json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    }).encode("utf-8")
+
+    req = request.Request(
+        api_url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=60) as resp:
+            body = _json.loads(resp.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        raise ApiError(
+            code="DEEPSEEK_CALL_FAILED",
+            message=f"DeepSeek API 调用失败（HTTP {exc.code}）",
+            status=502,
+        )
+    except urllib_error.URLError:
+        raise ApiError(
+            code="DEEPSEEK_CALL_FAILED",
+            message="无法连接到 DeepSeek API，请检查网络或 API 地址",
+            status=502,
+        )
+    except Exception:
+        raise ApiError(
+            code="DEEPSEEK_CALL_FAILED",
+            message="DeepSeek API 调用失败，请稍后重试",
+            status=502,
+        )
+
+    #提取回答文本
+    try:
+        return body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise ApiError(
+            code="DEEPSEEK_CALL_FAILED",
+            message="DeepSeek API 返回格式异常",
+            status=502,
+        )
+
+
+def _build_ai_user_prompt(post, replies, operation, question):
+    """构建发送给 DeepSeek 的用户提示词。"""
+    lines = [f"【帖子标题】{post.title}", f"【帖子正文】{post.content}"]
+
+    if replies:
+        lines.append("")
+        lines.append("【回复列表】")
+        for i, reply in enumerate(replies, 1):
+            author_name = reply.author.username
+            lines.append(f"{i}. {author_name}：{reply.content}")
+
+    full_content = "\n".join(lines)
+
+    #内容截断
+    from django.conf import settings
+    max_chars = settings.AI_MAX_CONTENT_CHARS
+    truncated = False
+
+    if len(full_content) > max_chars:
+        full_content = full_content[:max_chars]
+        truncated = True
+        truncation_warning = "（注意：内容较长，后续回复已被截断，本次回答可能未包含全部回复）"
+    else:
+        truncation_warning = ""
+
+    if operation == "总结":
+        task = "请对以上帖子和回复进行总结。"
+    elif operation == "提取主要观点":
+        task = "请提取以上帖子和回复中的主要观点。"
+    else:
+        task = f"请基于以上帖子和回复内容回答以下问题：{question}"
+
+    user_prompt = f"{full_content}\n\n{truncation_warning}\n\n{task}"
+    return user_prompt, truncated
+
+
+@require_POST
+def post_ai(request, post_id):
+    """POST /api/posts/{post_id}/ai —— 对帖子进行 AI 总结/观点提取/问答。"""
+    body = _parse_json_body(request)
+
+    #校验操作类型
+    operation = (body.get("operation") or "").strip()
+    if operation not in _VALID_AI_OPERATIONS:
+        raise ApiError(
+            code="INVALID_AI_OPERATION",
+            message=f"AI 操作必须是以下之一：{'、'.join(sorted(_VALID_AI_OPERATIONS))}",
+            status=422,
+        )
+
+    #问答操作必须提供问题
+    question = (body.get("question") or "").strip()
+    if operation == "问答" and not question:
+        raise ApiError(
+            code="QUESTION_REQUIRED",
+            message="问答操作必须提供问题",
+            status=422,
+        )
+
+    #禁止其他操作携带无关输入
+    if operation != "问答" and question:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message=f"「{operation}」操作不接受额外输入",
+            status=422,
+        )
+
+    #获取帖子并校验状态
+    try:
+        post = Post.objects.select_related("author", "club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    if post.status == Post.Status.DELETED:
+        raise ApiError(
+            code="POST_DELETED",
+            message="该帖子已删除，无法使用 AI",
+            status=409,
+        )
+
+    #校验成员权限
+    user, _membership = require_club_member(request, post.club_id)
+
+    #收集当前用户有权查看的正常回复
+    replies = list(
+        Reply.objects
+        .filter(post=post, status=Reply.Status.NORMAL)
+        .select_related("author")
+        .order_by("id")
+    )
+
+    #构建提示词并调用 DeepSeek
+    user_prompt, truncated = _build_ai_user_prompt(post, replies, operation, question)
+    answer = _call_deepseek(_AI_SYSTEM_PROMPT, user_prompt)
+
+    data = {"answer": answer, "truncated": truncated}
+    if truncated:
+        data["warning"] = "内容较长，本次回答可能未包含全部回复"
+
+    return success_response(data=data, message="AI 回答生成成功")

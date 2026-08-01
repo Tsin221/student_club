@@ -216,6 +216,9 @@ urlpatterns = [
     #管理员查看全部帖子和回复
     path("api/admin/posts", club_views.admin_list_posts),
     path("api/admin/replies", club_views.admin_list_replies),
+    # ── S17：帖子 AI ──
+    #成员对帖子使用 AI
+    path("api/posts/<int:post_id>/ai", club_views.post_ai),
 ]
 
 #开发环境媒体文件服务

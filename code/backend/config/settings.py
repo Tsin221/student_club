@@ -115,3 +115,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 #媒体文件配置（Logo 上传）
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# ── DeepSeek AI 配置 ─────────────────────────────────────────
+
+DEEPSEEK_API_URL = os.environ.get(
+    "DEEPSEEK_API_URL",
+    "https://api.deepseek.com/v1/chat/completions",
+)
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+# AI 单次请求允许的最大内容字符数（用于截断）
+AI_MAX_CONTENT_CHARS = int(os.environ.get("AI_MAX_CONTENT_CHARS", "8000"))
