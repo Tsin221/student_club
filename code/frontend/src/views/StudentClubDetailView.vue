@@ -4,8 +4,8 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { createPost, createReply, getClubDetail, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost } from '../api/clubs'
-import type { Announcement, Club, Post, Recruitment, Reply } from '../types/club'
+import { createEvaluation, createPost, createReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
+import type { Announcement, Club, ClubEvaluation, Post, Recruitment, Reply } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -256,6 +256,84 @@ async function handleToggleLike(post: Post) {
 }
 
 
+// ── S13 社团评价 ──────────────────────────────────────────
+
+const myEvaluation = ref<ClubEvaluation | null>(null)
+const isLoadingEvaluation = ref(false)
+const showEvalDialog = ref(false)
+const evalForm = reactive({
+  rating: 3,
+  comment: '',
+})
+const isSubmittingEval = ref(false)
+const evalFormRatingError = ref('')
+
+async function loadMyEvaluation() {
+  if (Number.isNaN(clubId)) return
+  isLoadingEvaluation.value = true
+  try {
+    const data = await getMyEvaluations()
+    //查找针对当前社团的评价
+    myEvaluation.value = data.items.find(e => e.club.id === clubId) || null
+  } catch {
+    myEvaluation.value = null
+  } finally {
+    isLoadingEvaluation.value = false
+  }
+}
+
+
+function openEvalDialog() {
+  if (myEvaluation.value) {
+    evalForm.rating = myEvaluation.value.rating
+    evalForm.comment = myEvaluation.value.comment || ''
+  } else {
+    evalForm.rating = 3
+    evalForm.comment = ''
+  }
+  evalFormRatingError.value = ''
+  showEvalDialog.value = true
+}
+
+
+async function handleSubmitEvaluation() {
+  if (evalForm.rating < 1 || evalForm.rating > 5) {
+    evalFormRatingError.value = '评分只能为一至五星'
+    return
+  }
+
+  isSubmittingEval.value = true
+  try {
+    if (myEvaluation.value) {
+      //修改已有评价
+      const updated = await updateEvaluation(myEvaluation.value.id, {
+        rating: evalForm.rating,
+        comment: evalForm.comment.trim() || undefined,
+      })
+      myEvaluation.value = updated
+      ElMessage.success('评价修改成功')
+    } else {
+      //提交新评价
+      const created = await createEvaluation(clubId, {
+        rating: evalForm.rating,
+        comment: evalForm.comment.trim() || undefined,
+      })
+      myEvaluation.value = created
+      ElMessage.success('评价提交成功')
+    }
+    showEvalDialog.value = false
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('操作失败，请稍后重试')
+    }
+  } finally {
+    isSubmittingEval.value = false
+  }
+}
+
+
 function goBack() {
   emit('navigate', '/student/clubs')
 }
@@ -339,6 +417,7 @@ onMounted(() => {
       loadRecruitments()
       loadAnnouncements()
       loadPosts()
+      loadMyEvaluation()
     }
   })
 })
@@ -427,6 +506,82 @@ onMounted(() => {
             {{ club.introduction }}
           </p>
         </el-card>
+
+        <!-- S13 社团评价 -->
+        <el-card
+          v-if="club.status === 'normal'"
+          class="profile-card"
+          shadow="never"
+          style="margin-top: 20px"
+        >
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span style="font-weight: 600">我的评价</span>
+              <el-button type="primary" size="small" @click="openEvalDialog">
+                {{ myEvaluation ? '修改评价' : '评价社团' }}
+              </el-button>
+            </div>
+          </template>
+
+          <div v-if="isLoadingEvaluation" v-loading="true" style="min-height: 60px" />
+
+          <div v-else-if="!myEvaluation">
+            <el-empty description="你尚未评价该社团" :image-size="50" />
+          </div>
+
+          <div v-else>
+            <div class="eval-display">
+              <div class="eval-display-rating">
+                <span class="eval-display-stars">{{ '★'.repeat(myEvaluation.rating) + '☆'.repeat(5 - myEvaluation.rating) }}</span>
+                <el-tag :type="myEvaluation.rating >= 4 ? 'success' : myEvaluation.rating >= 3 ? 'warning' : 'danger'" size="small">
+                  {{ myEvaluation.rating }} 星
+                </el-tag>
+              </div>
+              <p v-if="myEvaluation.comment" class="eval-display-comment">{{ myEvaluation.comment }}</p>
+              <p v-else class="eval-display-comment" style="color: #c0c4cc; font-style: italic">（无文字评价）</p>
+            </div>
+          </div>
+        </el-card>
+
+        <!-- 评价弹窗 -->
+        <el-dialog
+          v-model="showEvalDialog"
+          :title="myEvaluation ? '修改评价' : '评价社团'"
+          width="480px"
+          :close-on-click-modal="false"
+        >
+          <div style="margin-bottom: 16px">
+            <label style="display: block; margin-bottom: 8px; font-weight: 500">评分</label>
+            <el-rate
+              v-model="evalForm.rating"
+              :max="5"
+              :texts="['很差', '较差', '一般', '较好', '很好']"
+              show-text
+            />
+            <p v-if="evalFormRatingError" style="color: #f56c6c; font-size: 12px; margin-top: 4px">
+              {{ evalFormRatingError }}
+            </p>
+          </div>
+
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 500">评价内容（可选）</label>
+            <el-input
+              v-model="evalForm.comment"
+              type="textarea"
+              :rows="4"
+              maxlength="500"
+              show-word-limit
+              placeholder="写下你对社团的评价…"
+            />
+          </div>
+
+          <template #footer>
+            <el-button @click="showEvalDialog = false">取消</el-button>
+            <el-button type="primary" :loading="isSubmittingEval" @click="handleSubmitEvaluation">
+              {{ myEvaluation ? '确认修改' : '提交评价' }}
+            </el-button>
+          </template>
+        </el-dialog>
 
         <!-- S09 社团公告 -->
         <el-card
@@ -887,5 +1042,29 @@ onMounted(() => {
 
 .reply-form {
   margin-top: 8px;
+}
+
+.eval-display {
+  padding: 4px 0;
+}
+
+.eval-display-rating {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.eval-display-stars {
+  font-size: 18px;
+  color: #e6a23c;
+  letter-spacing: 3px;
+}
+
+.eval-display-comment {
+  color: #606266;
+  line-height: 1.6;
+  margin: 0;
+  white-space: pre-wrap;
 }
 </style>

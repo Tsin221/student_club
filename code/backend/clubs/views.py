@@ -9,11 +9,12 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubMembership, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
+from .models import Announcement, Club, ClubEvaluation, ClubMembership, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
     serialize_club,
+    serialize_club_evaluation,
     serialize_join_application,
     serialize_membership_for_admin,
     serialize_membership_for_leader,
@@ -2866,4 +2867,225 @@ def post_like_create_or_delete(request, post_id):
         code="INVALID_REQUEST",
         message="不支持的请求方法",
         status=405,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S13：社团评价
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/clubs/{club_id}/evaluations ────────────────────
+
+#当前在社成员提交评价（一至五星，可选文字）。
+@require_POST
+def create_evaluation(request, club_id):
+    user, membership = require_club_member(request, club_id)
+
+    body = _parse_json_body(request)
+
+    #评分校验
+    rating = body.get("rating")
+    if rating is None or not isinstance(rating, int):
+        raise ApiError(
+            code="INVALID_RATING",
+            message="评分不能为空且必须为整数",
+            status=400,
+        )
+    if rating < 1 or rating > 5:
+        raise ApiError(
+            code="INVALID_RATING",
+            message="评分只能为一至五星",
+            status=400,
+        )
+
+    comment = body.get("comment")
+    if comment is not None:
+        if not isinstance(comment, str):
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="评价内容必须为字符串",
+                status=400,
+            )
+        comment = comment.strip() or None
+
+    #拒绝不允许的字段
+    allowed = {"rating", "comment"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    #同一成员关系只能有一条评价
+    if ClubEvaluation.objects.filter(membership=membership).exists():
+        raise ApiError(
+            code="DUPLICATE_EVALUATION",
+            message="你已评价过该社团，请前往「我的评价」修改",
+            status=409,
+        )
+
+    evaluation = ClubEvaluation.objects.create(
+        user=user,
+        club=membership.club,
+        membership=membership,
+        rating=rating,
+        comment=comment,
+    )
+
+    return success_response(
+        data=serialize_club_evaluation(evaluation),
+        message="评价提交成功",
+        status=201,
+    )
+
+
+# ── GET /api/me/evaluations ─────────────────────────────────
+
+#学生查看本人全部评价（含历史）。
+@require_GET
+def my_evaluations(request):
+    user = require_active_student(request)
+
+    evaluations = (
+        ClubEvaluation.objects
+        .filter(user=user)
+        .select_related("user", "club", "membership")
+        .order_by("-id")
+    )
+
+    items = [serialize_club_evaluation(e) for e in evaluations]
+
+    return success_response(
+        data={"items": items},
+        message="查询成功",
+    )
+
+
+# ── PATCH /api/me/evaluations/{evaluation_id} ───────────────
+
+#评价本人修改评价（仍为在社成员时才能修改）。
+def update_evaluation(request, evaluation_id):
+    if request.method != "PATCH":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+
+    user = require_active_student(request)
+
+    #查找评价
+    try:
+        evaluation = ClubEvaluation.objects.select_related("club", "membership").get(id=evaluation_id)
+    except ClubEvaluation.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="评价不存在",
+            status=404,
+        )
+
+    #只有评价本人可以修改
+    if evaluation.user_id != user.id:
+        raise ApiError(
+            code="NOT_EVALUATION_OWNER",
+            message="你只能修改自己的评价",
+            status=403,
+        )
+
+    #检查社团是否正常
+    if evaluation.club.status != Club.Status.ACTIVE:
+        raise ApiError(
+            code="CLUB_CANCELLED",
+            message="社团已注销，无法修改评价",
+            status=409,
+        )
+
+    #检查是否仍为在社成员
+    membership = evaluation.membership
+    if membership.member_status != ClubMembership.MemberStatus.ACTIVE:
+        raise ApiError(
+            code="MEMBERSHIP_INACTIVE",
+            message="你已退出该社团或已被移除，无法修改评价",
+            status=403,
+        )
+
+    body = _parse_json_body(request)
+
+    if not body:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="至少需要修改评分或评价内容之一",
+            status=400,
+        )
+
+    #评分校验
+    if "rating" in body:
+        rating = body["rating"]
+        if not isinstance(rating, int):
+            raise ApiError(
+                code="INVALID_RATING",
+                message="评分必须为整数",
+                status=400,
+            )
+        if rating < 1 or rating > 5:
+            raise ApiError(
+                code="INVALID_RATING",
+                message="评分只能为一至五星",
+                status=400,
+            )
+        evaluation.rating = rating
+
+    #评价内容校验
+    if "comment" in body:
+        comment = body["comment"]
+        if not isinstance(comment, str):
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message="评价内容必须为字符串",
+                status=400,
+            )
+        evaluation.comment = comment.strip() or None
+
+    #拒绝不允许的字段
+    allowed = {"rating", "comment"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许修改字段 '{key}'",
+                status=400,
+            )
+
+    evaluation.save()
+
+    return success_response(
+        data=serialize_club_evaluation(evaluation),
+        message="评价修改成功",
+    )
+
+
+# ── GET /api/admin/evaluations ──────────────────────────────
+
+#管理员查看全部评价记录（只读）。
+@require_GET
+def admin_evaluations(request):
+    require_admin(request)
+
+    page, page_size = parse_pagination(request)
+
+    queryset = (
+        ClubEvaluation.objects
+        .select_related("user", "club", "membership")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+    serialized = [serialize_club_evaluation(e) for e in items]
+
+    return success_response(
+        data=paginated_response(serialized, page, page_size, total),
+        message="查询成功",
     )

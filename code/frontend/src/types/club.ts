@@ -298,3 +298,41 @@ export interface PaginatedReplies {
 export interface CreateReplyInput {
   content: string
 }
+
+// ── S13 社团评价 ──────────────────────────────────────────────
+
+export interface ClubEvaluation {
+  id: number
+  user: {
+    id: number
+    username: string
+  }
+  club: {
+    id: number
+    name: string
+  }
+  membership_id: number
+  rating: number
+  comment: string | null
+}
+
+export interface EvaluationsResult {
+  items: ClubEvaluation[]
+}
+
+export interface PaginatedEvaluations {
+  items: ClubEvaluation[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface CreateEvaluationInput {
+  rating: number
+  comment?: string
+}
+
+export interface UpdateEvaluationInput {
+  rating?: number
+  comment?: string
+}

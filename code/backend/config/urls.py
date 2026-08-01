@@ -156,6 +156,21 @@ urlpatterns = [
         "api/posts/<int:post_id>/like",
         club_views.post_like_create_or_delete,
     ),
+    # ── S13：社团评价 ──
+    #成员提交评价
+    path(
+        "api/clubs/<int:club_id>/evaluations",
+        club_views.create_evaluation,
+    ),
+    #学生查看本人全部评价
+    path("api/me/evaluations", club_views.my_evaluations),
+    #学生修改本人评价
+    path(
+        "api/me/evaluations/<int:evaluation_id>",
+        club_views.update_evaluation,
+    ),
+    #管理员查看全部评价
+    path("api/admin/evaluations", club_views.admin_evaluations),
 ]
 
 #开发环境媒体文件服务

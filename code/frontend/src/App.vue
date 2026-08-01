@@ -5,6 +5,7 @@ import AdminAnnouncementsView from './views/AdminAnnouncementsView.vue'
 import AdminApplicationsView from './views/AdminApplicationsView.vue'
 import AdminClubDetailView from './views/AdminClubDetailView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
+import AdminEvaluationsView from './views/AdminEvaluationsView.vue'
 import AdminMembershipsView from './views/AdminMembershipsView.vue'
 import AdminRecruitmentsView from './views/AdminRecruitmentsView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
@@ -16,6 +17,7 @@ import RegisterView from './views/RegisterView.vue'
 import StudentApplicationsView from './views/StudentApplicationsView.vue'
 import StudentClubDetailView from './views/StudentClubDetailView.vue'
 import StudentClubsView from './views/StudentClubsView.vue'
+import StudentEvaluationsView from './views/StudentEvaluationsView.vue'
 import StudentMembershipsView from './views/StudentMembershipsView.vue'
 import StudentNotificationsView from './views/StudentNotificationsView.vue'
 import StudentProfileEditView from './views/StudentProfileEditView.vue'
@@ -78,6 +80,8 @@ const currentView = computed(() => {
       return StudentApplicationsView
     case '/student/notifications':
       return StudentNotificationsView
+    case '/student/evaluations':
+      return StudentEvaluationsView
     case '/admin/users':
       return AdminUsersView
     case '/admin/clubs':
@@ -88,6 +92,8 @@ const currentView = computed(() => {
       return AdminRecruitmentsView
     case '/admin/applications':
       return AdminApplicationsView
+    case '/admin/evaluations':
+      return AdminEvaluationsView
     case '/login':
     default: {
       if (isStudentClubDetail(path)) {
@@ -135,9 +141,9 @@ function syncRoute() {
 const VALID_PATHS = [
   '/login', '/register',
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
-  '/student/applications', '/student/notifications',
+  '/student/applications', '/student/notifications', '/student/evaluations',
   '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
-  '/admin/applications',
+  '/admin/applications', '/admin/evaluations',
 ]
 
 function isValidPath(path: string): boolean {

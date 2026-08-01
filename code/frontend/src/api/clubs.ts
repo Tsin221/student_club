@@ -1,17 +1,21 @@
 import type {
   Announcement,
   Club,
+  ClubEvaluation,
   ClubMembership,
   CreateAnnouncementInput,
   CreateClubResult,
+  CreateEvaluationInput,
   CreatePostInput,
   CreateReplyInput,
   DeleteAnnouncementResult,
+  EvaluationsResult,
   LeaderMembersResult,
   MyMembership,
   MyMembershipsResult,
   PaginatedAnnouncements,
   PaginatedClubs,
+  PaginatedEvaluations,
   PaginatedMemberships,
   PaginatedPosts,
   PaginatedRecruitments,
@@ -21,6 +25,7 @@ import type {
   Recruitment,
   Reply,
   UpdateAnnouncementInput,
+  UpdateEvaluationInput,
 } from '../types/club'
 import { ApiRequestError } from './auth'
 import {
@@ -1104,4 +1109,139 @@ export async function unlikePost(postId: number): Promise<Post> {
     `/api/posts/${postId}/like`,
   )
   return requirePost(result)
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// S13 社团评价 API
+// ═════════════════════════════════════════════════════════════
+
+
+function isClubEvaluation(value: unknown): value is ClubEvaluation {
+  if (typeof value !== 'object' || value === null) return false
+  const e = value as Record<string, unknown>
+  return (
+    typeof e.id === 'number'
+    && typeof e.user === 'object'
+    && e.user !== null
+    && typeof e.club === 'object'
+    && e.club !== null
+    && typeof e.membership_id === 'number'
+    && typeof e.rating === 'number'
+  )
+}
+
+
+function requireClubEvaluation(value: unknown): ClubEvaluation {
+  if (!isClubEvaluation(value)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的评价数据不完整',
+      200,
+    )
+  }
+  return value
+}
+
+
+function isPaginatedEvaluations(value: unknown): value is PaginatedEvaluations {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    Array.isArray(c.items)
+    && typeof c.page === 'number'
+    && typeof c.page_size === 'number'
+    && typeof c.total === 'number'
+  )
+}
+
+
+//POST /api/clubs/{club_id}/evaluations — 提交社团评价
+export async function createEvaluation(
+  clubId: number,
+  data: CreateEvaluationInput,
+): Promise<ClubEvaluation> {
+  const result = await postJson<unknown>(
+    `/api/clubs/${clubId}/evaluations`,
+    data,
+  )
+  return requireClubEvaluation(result)
+}
+
+
+//GET /api/me/evaluations — 查看本人全部评价
+export async function getMyEvaluations(): Promise<EvaluationsResult> {
+  const data = await request<unknown>(
+    '/api/me/evaluations',
+    { method: 'GET' },
+  )
+
+  if (typeof data !== 'object' || data === null || !Array.isArray((data as Record<string, unknown>).items)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的评价列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of (data as EvaluationsResult).items) {
+    if (!isClubEvaluation(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的评价数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data as EvaluationsResult
+}
+
+
+//PATCH /api/me/evaluations/{evaluation_id} — 修改本人评价
+export async function updateEvaluation(
+  evaluationId: number,
+  data: UpdateEvaluationInput,
+): Promise<ClubEvaluation> {
+  const result = await patchJson<unknown>(
+    `/api/me/evaluations/${evaluationId}`,
+    data,
+  )
+  return requireClubEvaluation(result)
+}
+
+
+//GET /api/admin/evaluations — 管理员查看全部评价
+export async function getAdminEvaluations(
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedEvaluations> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const data = await request<unknown>(
+    `/api/admin/evaluations?${params.toString()}`,
+    { method: 'GET' },
+  )
+
+  if (!isPaginatedEvaluations(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的评价列表格式不正确',
+      200,
+    )
+  }
+
+  for (const item of data.items) {
+    if (!isClubEvaluation(item)) {
+      throw new ApiRequestError(
+        'INVALID_RESPONSE',
+        '服务器返回的评价数据不完整',
+        200,
+      )
+    }
+  }
+
+  return data
 }

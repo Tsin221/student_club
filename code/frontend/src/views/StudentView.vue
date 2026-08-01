@@ -156,6 +156,13 @@ onMounted(() => {
               </el-button>
               <el-button
                 type="primary"
+                plain
+                @click="emit('navigate', '/student/evaluations')"
+              >
+                我的评价
+              </el-button>
+              <el-button
+                type="primary"
                 @click="emit('navigate', '/student/profile/edit')"
               >
                 编辑资料

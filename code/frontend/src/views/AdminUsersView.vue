@@ -196,6 +196,12 @@ onMounted(() => {
         >
           成员关系
         </el-button>
+        <el-button
+          type="default"
+          @click="emit('navigate', '/admin/evaluations')"
+        >
+          全部评价
+        </el-button>
       </div>
 
       <!-- 错误状态 -->

@@ -186,6 +186,27 @@ def serialize_reply(reply):
     }
 
 
+# ── S13：社团评价序列化 ────────────────────────────────────
+
+
+def serialize_club_evaluation(evaluation):
+    """将 ClubEvaluation 对象序列化为字典。"""
+    return {
+        "id": evaluation.id,
+        "user": {
+            "id": evaluation.user.id,
+            "username": evaluation.user.username,
+        },
+        "club": {
+            "id": evaluation.club.id,
+            "name": evaluation.club.name,
+        },
+        "membership_id": evaluation.membership_id,
+        "rating": evaluation.rating,
+        "comment": evaluation.comment,
+    }
+
+
 def serialize_post(post, current_user_id=None):
     """将 Post 对象序列化为字典。
 

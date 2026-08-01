@@ -430,3 +430,49 @@ class Reply(models.Model):
 
     def __str__(self):
         return f"回复 #{self.id} → 帖子 #{self.post_id}"
+
+
+# ── S13：社团评价 ────────────────────────────────────────────
+
+
+class ClubEvaluation(models.Model):
+
+    """社团评价 —— 一条成员关系最多对应一条评价，仍为在社成员时才能修改。"""
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="club_evaluations",
+        db_column="user_id",
+    )
+    club = models.ForeignKey(
+        Club,
+        on_delete=models.PROTECT,
+        related_name="club_evaluations",
+        db_column="club_id",
+    )
+    membership = models.OneToOneField(
+        ClubMembership,
+        on_delete=models.PROTECT,
+        related_name="club_evaluation",
+        db_column="membership_id",
+    )
+    rating = models.PositiveSmallIntegerField()
+    comment = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "club_evaluation"
+        indexes = [
+            models.Index(
+                fields=["user"],
+                name="ceval_user_idx",
+            ),
+            models.Index(
+                fields=["club"],
+                name="ceval_club_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"评价 #{self.id}：{self.user.username} → {self.club.name}（{self.rating}★）"
