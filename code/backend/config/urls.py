@@ -189,6 +189,27 @@ urlpatterns = [
         "api/leader/feedback/<int:feedback_id>/process",
         club_views.leader_process_feedback,
     ),
+    # ── S15：内容举报 ──
+    #成员举报帖子
+    path(
+        "api/posts/<int:post_id>/reports",
+        club_views.report_post,
+    ),
+    #成员举报回复
+    path(
+        "api/replies/<int:reply_id>/reports",
+        club_views.report_reply,
+    ),
+    #负责人查看举报列表
+    path(
+        "api/leader/clubs/<int:club_id>/reports",
+        club_views.leader_reports,
+    ),
+    #负责人处理举报
+    path(
+        "api/leader/reports/<int:report_id>/process",
+        club_views.leader_process_report,
+    ),
 ]
 
 #开发环境媒体文件服务

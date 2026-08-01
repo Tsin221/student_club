@@ -3,12 +3,14 @@ import type {
   Club,
   ClubEvaluation,
   ClubMembership,
+  ContentReport,
   CreateAnnouncementInput,
   CreateClubResult,
   CreateEvaluationInput,
   CreateFeedbackInput,
   CreatePostInput,
   CreateReplyInput,
+  CreateReportInput,
   DeleteAnnouncementResult,
   EvaluationsResult,
   Feedback,
@@ -24,9 +26,11 @@ import type {
   PaginatedPosts,
   PaginatedRecruitments,
   PaginatedReplies,
+  PaginatedReports,
   PinPostInput,
   Post,
   ProcessFeedbackInput,
+  ProcessReportInput,
   Recruitment,
   Reply,
   UpdateAnnouncementInput,
@@ -1385,4 +1389,90 @@ export async function processFeedback(
     data,
   )
   return requireFeedback(result)
+}
+
+// ── S15：内容举报 ──
+
+function isContentReport(value: unknown): value is ContentReport {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.id === 'number'
+    && typeof r.reporter === 'object' && r.reporter !== null
+    && typeof r.reason === 'string'
+    && typeof r.status === 'string'
+  )
+}
+
+function requireContentReport(value: unknown): ContentReport {
+  if (!isContentReport(value)) {
+    throw new ApiRequestError('INVALID_RESPONSE', '返回的报告数据格式不正确', 0)
+  }
+  return value
+}
+
+function isPaginatedReports(value: unknown): value is PaginatedReports {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    Array.isArray(v.items)
+    && typeof v.page === 'number'
+    && typeof v.page_size === 'number'
+    && typeof v.total === 'number'
+  )
+}
+
+export async function createPostReport(
+  postId: number,
+  data: CreateReportInput,
+): Promise<ContentReport> {
+  const result = await postJson<unknown>(
+    `/api/posts/${postId}/reports`,
+    data,
+  )
+  return requireContentReport(result)
+}
+
+export async function createReplyReport(
+  replyId: number,
+  data: CreateReportInput,
+): Promise<ContentReport> {
+  const result = await postJson<unknown>(
+    `/api/replies/${replyId}/reports`,
+    data,
+  )
+  return requireContentReport(result)
+}
+
+export async function getLeaderReports(
+  clubId: number,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedReports> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const result = await request<unknown>(
+    `/api/leader/clubs/${clubId}/reports?${params.toString()}`,
+    { method: 'GET' },
+  )
+  if (!isPaginatedReports(result)) {
+    throw new ApiRequestError('INVALID_RESPONSE', '返回的分页举报列表格式不正确', 0)
+  }
+  for (const item of result.items) {
+    requireContentReport(item)
+  }
+  return result as PaginatedReports
+}
+
+export async function processReport(
+  reportId: number,
+  data: ProcessReportInput,
+): Promise<ContentReport> {
+  const result = await postJson<unknown>(
+    `/api/leader/reports/${reportId}/process`,
+    data,
+  )
+  return requireContentReport(result)
 }

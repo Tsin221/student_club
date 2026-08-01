@@ -9,12 +9,13 @@ from django.views.decorators.http import require_GET, require_POST
 from core.exceptions import ApiError
 from core.responses import success_response
 
-from .models import Announcement, Club, ClubEvaluation, ClubMembership, Feedback, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
+from .models import Announcement, Club, ClubEvaluation, ClubMembership, ContentReport, Feedback, JoinApplication, Notification, Post, PostLike, Recruitment, Reply
 from .serializers import (
     compute_recruitment_status,
     serialize_announcement,
     serialize_club,
     serialize_club_evaluation,
+    serialize_content_report,
     serialize_feedback,
     serialize_join_application,
     serialize_membership_for_admin,
@@ -3244,4 +3245,293 @@ def leader_process_feedback(request, feedback_id):
     return success_response(
         data=serialize_feedback(feedback),
         message="反馈处理成功",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# S15：内容举报
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── POST /api/posts/{post_id}/reports ─────────────────────────
+
+#当前在社成员举报帖子。
+@require_POST
+def report_post(request, post_id):
+    # 查找帖子
+    try:
+        post = Post.objects.select_related("author", "club").get(id=post_id)
+    except Post.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="帖子不存在",
+            status=404,
+        )
+
+    # 帖子必须为正常状态
+    if post.status != Post.Status.NORMAL:
+        raise ApiError(
+            code="POST_DELETED",
+            message="帖子已删除，不能举报",
+            status=400,
+        )
+
+    # 校验成员权限（从帖子反推社团）
+    user, _membership = require_club_member(request, post.club_id)
+
+    body = _parse_json_body(request)
+
+    # reason 校验
+    reason = body.get("reason")
+    if not reason or not isinstance(reason, str) or reason.strip() == "":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="举报原因不能为空",
+            status=400,
+        )
+    reason = reason.strip()
+
+    # 拒绝不允许的字段
+    allowed = {"reason"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    report = ContentReport.objects.create(
+        reporter=user,
+        post=post,
+        reason=reason,
+    )
+
+    return success_response(
+        data=serialize_content_report(report),
+        message="举报提交成功",
+        status=201,
+    )
+
+
+# ── POST /api/replies/{reply_id}/reports ──────────────────────
+
+#当前在社成员举报回复。
+@require_POST
+def report_reply(request, reply_id):
+    # 查找回复
+    try:
+        reply = Reply.objects.select_related("author", "post", "post__club", "post__author").get(id=reply_id)
+    except Reply.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="回复不存在",
+            status=404,
+        )
+
+    # 回复和父帖必须为正常状态
+    if reply.status != Reply.Status.NORMAL:
+        raise ApiError(
+            code="REPLY_DELETED",
+            message="回复已删除，不能举报",
+            status=400,
+        )
+    if reply.post.status != Post.Status.NORMAL:
+        raise ApiError(
+            code="POST_DELETED",
+            message="帖子已删除，不能举报其回复",
+            status=400,
+        )
+
+    # 校验成员权限（从父帖反推社团）
+    user, _membership = require_club_member(request, reply.post.club_id)
+
+    body = _parse_json_body(request)
+
+    # reason 校验
+    reason = body.get("reason")
+    if not reason or not isinstance(reason, str) or reason.strip() == "":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="举报原因不能为空",
+            status=400,
+        )
+    reason = reason.strip()
+
+    # 拒绝不允许的字段
+    allowed = {"reason"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    report = ContentReport.objects.create(
+        reporter=user,
+        reply=reply,
+        reason=reason,
+    )
+
+    return success_response(
+        data=serialize_content_report(report),
+        message="举报提交成功",
+        status=201,
+    )
+
+
+# ── GET /api/leader/clubs/{club_id}/reports ───────────────────
+
+#负责人查看本人负责社团的举报列表。
+@require_GET
+def leader_reports(request, club_id):
+    require_leader_of_club(request, club_id)
+
+    page, page_size = parse_pagination(request)
+
+    # 过滤该社团的举报：post__club_id=club_id 或 reply__post__club_id=club_id
+    from django.db.models import Q
+
+    queryset = (
+        ContentReport.objects
+        .filter(
+            Q(post__club_id=club_id) | Q(reply__post__club_id=club_id)
+        )
+        .select_related("reporter", "post", "post__author", "reply", "reply__author", "reply__post")
+        .order_by("-id")
+    )
+
+    items, total = paginate(queryset, page, page_size)
+    serialized = [serialize_content_report(r, include_target=True) for r in items]
+
+    return success_response(
+        data=paginated_response(serialized, page, page_size, total),
+        message="查询成功",
+    )
+
+
+# ── POST /api/leader/reports/{report_id}/process ──────────────
+
+#负责人处理举报。
+@require_POST
+def leader_process_report(request, report_id):
+    # 查找举报
+    try:
+        report = ContentReport.objects.select_related(
+            "reporter", "post", "post__author", "reply", "reply__author", "reply__post"
+        ).get(id=report_id)
+    except ContentReport.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="举报不存在",
+            status=404,
+        )
+
+    # 确定举报所属社团
+    if report.post_id:
+        club_id = report.post.club_id
+    elif report.reply_id:
+        club_id = report.reply.post.club_id
+    else:
+        raise ApiError(
+            code="INTERNAL_ERROR",
+            message="举报数据异常",
+            status=500,
+        )
+
+    # 校验负责人身份
+    require_leader_of_club(request, club_id)
+
+    # 检查是否已处理
+    if report.status != ContentReport.Status.PENDING:
+        raise ApiError(
+            code="REPORT_ALREADY_PROCESSED",
+            message="该举报已处理",
+            status=409,
+        )
+
+    body = _parse_json_body(request)
+
+    # status 校验
+    new_status = body.get("status")
+    if new_status not in (ContentReport.Status.ACCEPTED, ContentReport.Status.NOT_ACCEPTED):
+        raise ApiError(
+            code="INVALID_REPORT_STATUS",
+            message="处理结论只能为'已采纳'或'未采纳'",
+            status=400,
+        )
+
+    # processing_note 必填校验
+    processing_note = body.get("processing_note")
+    if not processing_note or not isinstance(processing_note, str) or processing_note.strip() == "":
+        raise ApiError(
+            code="PROCESSING_NOTE_REQUIRED",
+            message="处理说明不能为空",
+            status=400,
+        )
+    processing_note = processing_note.strip()
+
+    # delete_target 校验
+    delete_target = body.get("delete_target", False)
+    if not isinstance(delete_target, bool):
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="delete_target 必须为布尔值",
+            status=400,
+        )
+
+    if new_status == ContentReport.Status.NOT_ACCEPTED and delete_target:
+        raise ApiError(
+            code="INVALID_DELETE_DECISION",
+            message="未采纳举报时不能请求删除目标内容",
+            status=400,
+        )
+
+    # 拒绝不允许的字段
+    allowed = {"status", "processing_note", "delete_target"}
+    for key in body:
+        if key not in allowed:
+            raise ApiError(
+                code="INVALID_REQUEST",
+                message=f"不允许提交字段 '{key}'",
+                status=400,
+            )
+
+    # 事务内完成：更新举报状态、可选删除目标、生成通知
+    with transaction.atomic():
+        report.status = new_status
+        report.processing_note = processing_note
+        report.save()
+
+        # 可选删除目标内容
+        target_deleted = False
+        if new_status == ContentReport.Status.ACCEPTED and delete_target:
+            if report.post_id and report.post.status == Post.Status.NORMAL:
+                report.post.status = Post.Status.DELETED
+                report.post.save()
+                target_deleted = True
+            elif report.reply_id and report.reply.status == Reply.Status.NORMAL:
+                report.reply.status = Reply.Status.DELETED
+                report.reply.save()
+                target_deleted = True
+            # 目标已删除时不重复操作
+
+        # 生成通知
+        Notification.objects.create(
+            recipient=report.reporter,
+            type=Notification.Type.REPORT_PROCESSED,
+            content=f"您的举报已处理：{new_status}",
+        )
+
+    response_data = serialize_content_report(report, include_target=True)
+    if target_deleted:
+        if report.post_id:
+            response_data["target"]["status"] = "已删除"
+        elif report.reply_id:
+            response_data["target"]["status"] = "已删除"
+
+    return success_response(
+        data=response_data,
+        message="举报处理成功",
     )

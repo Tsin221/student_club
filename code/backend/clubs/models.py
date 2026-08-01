@@ -526,3 +526,63 @@ class Feedback(models.Model):
 
     def __str__(self):
         return f"反馈 #{self.id}：{self.submitter.username} → {self.club.name}（{self.status}）"
+
+
+# ── S15：内容举报 ──────────────────────────────────────────────
+
+
+class ContentReport(models.Model):
+
+    """内容举报 —— 当前在社成员举报可见帖子或回复，负责人处理并通知举报人。"""
+
+    class Status(models.TextChoices):
+        PENDING = "待处理", "待处理"
+        ACCEPTED = "已采纳", "已采纳"
+        NOT_ACCEPTED = "未采纳", "未采纳"
+
+    id = models.BigAutoField(primary_key=True)
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="content_reports",
+        db_column="reporter_id",
+    )
+    reason = models.TextField()
+    post = models.ForeignKey(
+        "Post",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="content_reports",
+        db_column="post_id",
+    )
+    reply = models.ForeignKey(
+        "Reply",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="content_reports",
+        db_column="reply_id",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    processing_note = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "content_report"
+        indexes = [
+            models.Index(
+                fields=["post", "status"],
+                name="cr_post_status_idx",
+            ),
+            models.Index(
+                fields=["reply", "status"],
+                name="cr_reply_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"举报 #{self.id}：{self.reporter.username} → 帖子{self.post_id or self.reply_id}（{self.status}）"

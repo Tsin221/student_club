@@ -821,6 +821,24 @@ onMounted(() => {
           </template>
         </el-card>
 
+        <!-- S15 内容举报管理入口 -->
+        <el-card style="margin-top: 16px">
+          <template #header>
+            <span style="font-weight: 600">内容举报管理</span>
+          </template>
+          <div style="text-align: center; padding: 12px 0">
+            <p style="color: #606266; margin: 0 0 12px 0; font-size: 14px">
+              查看和处理成员提交的帖子与回复举报
+            </p>
+            <el-button
+              type="primary"
+              @click="emit('navigate', `/leader/clubs/${clubId}/reports`)"
+            >
+              管理举报
+            </el-button>
+          </div>
+        </el-card>
+
         <!-- 处理反馈弹窗 -->
         <el-dialog
           v-model="showProcessDialog"

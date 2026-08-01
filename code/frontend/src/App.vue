@@ -12,6 +12,7 @@ import AdminUsersView from './views/AdminUsersView.vue'
 import LeaderApplicationsView from './views/LeaderApplicationsView.vue'
 import LeaderClubWorkspaceView from './views/LeaderClubWorkspaceView.vue'
 import LeaderRecruitmentsView from './views/LeaderRecruitmentsView.vue'
+import LeaderReportsView from './views/LeaderReportsView.vue'
 import LoginView from './views/LoginView.vue'
 import RegisterView from './views/RegisterView.vue'
 import StudentApplicationsView from './views/StudentApplicationsView.vue'
@@ -57,6 +58,11 @@ function isLeaderRecruitments(path: string): boolean {
 //负责人入社申请匹配（/leader/clubs/{数字}/applications）
 function isLeaderApplications(path: string): boolean {
   return /^\/leader\/clubs\/\d+\/applications$/.test(path)
+}
+
+//负责人内容举报匹配（/leader/clubs/{数字}/reports）
+function isLeaderReports(path: string): boolean {
+  return /^\/leader\/clubs\/\d+\/reports$/.test(path)
 }
 
 //管理员公告历史匹配（/admin/clubs/{数字}/announcements）
@@ -114,6 +120,9 @@ const currentView = computed(() => {
       if (isLeaderApplications(path)) {
         return LeaderApplicationsView
       }
+      if (isLeaderReports(path)) {
+        return LeaderReportsView
+      }
       if (isLeaderClubWorkspace(path)) {
         return LeaderClubWorkspaceView
       }
@@ -157,6 +166,7 @@ function isValidPath(path: string): boolean {
     || isAdminAnnouncements(path)
     || isLeaderRecruitments(path)
     || isLeaderApplications(path)
+    || isLeaderReports(path)
     || isLeaderClubWorkspace(path)
 }
 

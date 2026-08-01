@@ -373,3 +373,39 @@ export interface CreateFeedbackInput {
 export interface ProcessFeedbackInput {
   processing_note?: string
 }
+
+// ── S15：内容举报 ──
+
+export interface ContentReport {
+  id: number
+  reporter: { id: number; username: string }
+  reason: string
+  post_id: number | null
+  reply_id: number | null
+  status: '待处理' | '已采纳' | '未采纳'
+  processing_note: string | null
+  target?: {
+    id: number
+    title?: string
+    content: string
+    status: string
+    author: { id: number; username: string }
+  } | null
+}
+
+export interface CreateReportInput {
+  reason: string
+}
+
+export interface ProcessReportInput {
+  status: '已采纳' | '未采纳'
+  processing_note: string
+  delete_target: boolean
+}
+
+export interface PaginatedReports {
+  items: ContentReport[]
+  page: number
+  page_size: number
+  total: number
+}

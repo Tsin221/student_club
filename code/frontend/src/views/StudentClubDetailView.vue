@@ -4,7 +4,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
 import { submitApplication } from '../api/applications'
 import { ApiRequestError } from '../api/auth'
-import { createEvaluation, createFeedback, createPost, createReply, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
+import { createEvaluation, createFeedback, createPost, createPostReport, createReply, createReplyReport, getClubDetail, getMyEvaluations, getPublicRecruitments, likePost, listAnnouncements, listPosts, listReplies, unlikePost, updateEvaluation } from '../api/clubs'
 import type { Announcement, Club, ClubEvaluation, Post, Recruitment, Reply } from '../types/club'
 
 
@@ -252,6 +252,54 @@ async function handleToggleLike(post: Post) {
     }
   } finally {
     isTogglingLike.value = { ...isTogglingLike.value, [post.id]: false }
+  }
+}
+
+
+// ── S15 内容举报 ────────────────────────────────────────────
+
+const showReportDialog = ref(false)
+const reportTarget = ref<{ type: 'post'; id: number; title?: string } | { type: 'reply'; id: number; content: string } | null>(null)
+const reportReason = ref('')
+const isSubmittingReport = ref(false)
+
+function openReportPostDialog(post: Post) {
+  reportTarget.value = { type: 'post', id: post.id, title: post.title }
+  reportReason.value = ''
+  showReportDialog.value = true
+}
+
+function openReportReplyDialog(reply: Reply) {
+  reportTarget.value = { type: 'reply', id: reply.id, content: reply.content }
+  reportReason.value = ''
+  showReportDialog.value = true
+}
+
+async function handleSubmitReport() {
+  const reason = reportReason.value.trim()
+  if (!reason) {
+    ElMessage.warning('请填写举报原因')
+    return
+  }
+  if (!reportTarget.value) return
+
+  isSubmittingReport.value = true
+  try {
+    if (reportTarget.value.type === 'post') {
+      await createPostReport(reportTarget.value.id, { reason })
+    } else {
+      await createReplyReport(reportTarget.value.id, { reason })
+    }
+    showReportDialog.value = false
+    ElMessage.success('举报提交成功')
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('举报提交失败，请稍后重试')
+    }
+  } finally {
+    isSubmittingReport.value = false
   }
 }
 
@@ -778,6 +826,13 @@ onMounted(() => {
                 >
                   {{ p.liked_by_me ? '❤️' : '🤍' }} {{ p.like_count }}
                 </el-button>
+                <el-button
+                  type="default"
+                  size="small"
+                  @click="openReportPostDialog(p)"
+                >
+                  举报
+                </el-button>
               </div>
 
               <!-- S11 回复区域 -->
@@ -807,6 +862,15 @@ onMounted(() => {
                     >
                       <span class="reply-author">{{ reply.author.username }}</span>
                       <span class="reply-content">{{ reply.content }}</span>
+                      <el-button
+                        type="default"
+                        size="small"
+                        text
+                        style="margin-left: auto; flex-shrink: 0"
+                        @click="openReportReplyDialog(reply)"
+                      >
+                        举报
+                      </el-button>
                     </div>
                   </div>
 
@@ -979,6 +1043,44 @@ onMounted(() => {
       </template>
     </div>
   </main>
+
+  <!-- S15 举报对话框 -->
+  <el-dialog
+    v-model="showReportDialog"
+    title="举报内容"
+    width="460px"
+    :close-on-click-modal="false"
+  >
+    <el-form label-position="top">
+      <el-form-item v-if="reportTarget?.type === 'post'" label="举报帖子">
+        <p style="margin: 0; color: #303133">{{ (reportTarget as { title?: string }).title || '(无标题)' }}</p>
+      </el-form-item>
+      <el-form-item v-else-if="reportTarget?.type === 'reply'" label="举报回复">
+        <p style="margin: 0; color: #303133">{{ (reportTarget as { content: string }).content }}</p>
+      </el-form-item>
+      <el-form-item label="举报原因" required>
+        <el-input
+          v-model="reportReason"
+          type="textarea"
+          :rows="3"
+          maxlength="500"
+          show-word-limit
+          placeholder="请描述举报原因"
+        />
+      </el-form-item>
+    </el-form>
+
+    <template #footer>
+      <el-button @click="showReportDialog = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="isSubmittingReport"
+        @click="handleSubmitReport"
+      >
+        提交举报
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>

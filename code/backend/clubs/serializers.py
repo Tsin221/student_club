@@ -229,6 +229,57 @@ def serialize_feedback(feedback):
     }
 
 
+# ── S15：内容举报序列化 ──────────────────────────────────────
+
+
+def serialize_content_report(report, include_target=False):
+    """将 ContentReport 对象序列化为字典。
+
+    include_target=True 时附加 target 对象（从原帖/回复实时读取）。
+    """
+    data = {
+        "id": report.id,
+        "reporter": {
+            "id": report.reporter.id,
+            "username": report.reporter.username,
+        },
+        "reason": report.reason,
+        "post_id": report.post_id,
+        "reply_id": report.reply_id,
+        "status": report.status,
+        "processing_note": report.processing_note,
+    }
+
+    if include_target:
+        if report.post_id:
+            post = report.post
+            data["target"] = {
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "status": post.status,
+                "author": {
+                    "id": post.author.id,
+                    "username": post.author.username,
+                },
+            }
+        elif report.reply_id:
+            reply = report.reply
+            data["target"] = {
+                "id": reply.id,
+                "content": reply.content,
+                "status": reply.status,
+                "author": {
+                    "id": reply.author.id,
+                    "username": reply.author.username,
+                },
+            }
+        else:
+            data["target"] = None
+
+    return data
+
+
 def serialize_post(post, current_user_id=None):
     """将 Post 对象序列化为字典。
 
