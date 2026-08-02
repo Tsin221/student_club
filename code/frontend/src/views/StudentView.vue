@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { ApiRequestError, getProfile } from '../api/auth'
+import { getStudentOverview } from '../api/clubs'
+import type { JoinApplication, StudentOverview } from '../types/club'
 import type { SelfUser } from '../types/user'
 
 
@@ -13,6 +15,38 @@ const isLoading = ref(true)
 const errorMessage = ref('')
 const profile = ref<SelfUser | null>(null)
 const showUpdateSuccess = ref(false)
+
+// ── S19：数据概览 ──────────────────────────────────────────
+
+const overview = ref<StudentOverview | null>(null)
+const isLoadingOverview = ref(false)
+const overviewError = ref('')
+
+async function loadOverview() {
+  isLoadingOverview.value = true
+  overviewError.value = ''
+  try {
+    overview.value = await getStudentOverview()
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      overviewError.value = error.message
+    } else {
+      overviewError.value = '数据概览加载失败'
+    }
+  } finally {
+    isLoadingOverview.value = false
+  }
+}
+
+function applicationStatusType(status: string): 'warning' | 'success' | 'info' {
+  if (status === '待审核') return 'warning'
+  if (status === '已通过') return 'success'
+  return 'info'
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('zh-CN')
+}
 
 const initials = computed(() => profile.value?.name.slice(0, 1) || '同')
 const registeredAt = computed(() => {
@@ -62,6 +96,7 @@ onMounted(() => {
     showUpdateSuccess.value = true
   }
   loadProfile()
+  loadOverview()
 })
 </script>
 
@@ -201,6 +236,150 @@ onMounted(() => {
           </el-descriptions>
         </template>
       </el-card>
+
+      <!-- S19：数据概览 -->
+      <section class="page-heading" style="margin-top: 28px" aria-labelledby="overview-title">
+        <p class="section-kicker">数据概览</p>
+        <h1 id="overview-title">我的概览</h1>
+      </section>
+
+      <el-card
+        v-loading="isLoadingOverview"
+        class="data-card"
+        shadow="never"
+        aria-live="polite"
+      >
+        <template v-if="overviewError">
+          <el-result icon="error" title="概览加载失败" :sub-title="overviewError">
+            <template #extra>
+              <el-button type="primary" @click="loadOverview">重新加载</el-button>
+            </template>
+          </el-result>
+        </template>
+
+        <template v-else-if="overview">
+          <!-- 加入社团数卡片 -->
+          <div class="overview-stats">
+            <div
+              class="stat-card"
+              role="button"
+              tabindex="0"
+              @click="emit('navigate', '/student/memberships')"
+              @keydown.enter="emit('navigate', '/student/memberships')"
+            >
+              <div class="stat-number">{{ overview.joined_normal_club_count }}</div>
+              <div class="stat-label">当前加入社团</div>
+              <div class="stat-hint">点击查看详情</div>
+            </div>
+          </div>
+
+          <el-divider />
+
+          <!-- 入社申请记录 -->
+          <div style="margin-top: 8px">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+              <h3 style="margin: 0; font-size: 15px; font-weight: 600">入社申请记录</h3>
+              <el-button
+                v-if="overview.join_applications.length > 0"
+                text
+                type="primary"
+                size="small"
+                @click="emit('navigate', '/student/applications')"
+              >
+                查看全部
+              </el-button>
+            </div>
+
+            <el-empty
+              v-if="overview.join_applications.length === 0"
+              description="暂无申请记录"
+              :image-size="48"
+            />
+
+            <el-table
+              v-else
+              :data="overview.join_applications.slice(0, 5)"
+              stripe
+              size="small"
+            >
+              <el-table-column label="社团" min-width="120">
+                <template #default="{ row }">
+                  {{ row.club.name }}
+                </template>
+              </el-table-column>
+              <el-table-column label="招新标题" min-width="140">
+                <template #default="{ row }">
+                  {{ row.recruitment.title }}
+                </template>
+              </el-table-column>
+              <el-table-column label="申请状态" width="90">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="applicationStatusType(row.status)"
+                    effect="light"
+                    size="small"
+                  >
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="申请时间" width="110">
+                <template #default="{ row }">
+                  <span style="font-size: 13px; color: #909399">
+                    {{ formatDate(row.applied_at) }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
+      </el-card>
     </div>
   </main>
 </template>
+
+<style scoped>
+.overview-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stat-card {
+  flex: 1;
+  min-width: 140px;
+  padding: 20px 24px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  background: #fff;
+}
+
+.stat-card:hover {
+  border-color: var(--el-color-primary, #409eff);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.15);
+}
+
+.stat-number {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--el-color-primary, #409eff);
+  line-height: 1.2;
+}
+
+.stat-label {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.stat-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #c0c4cc;
+}
+</style>

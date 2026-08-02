@@ -1,4 +1,5 @@
 import type {
+  AdminOverview,
   Announcement,
   Club,
   ClubEvaluation,
@@ -16,6 +17,7 @@ import type {
   Feedback,
   FeedbacksResult,
   LeaderMembersResult,
+  LeaderOverview,
   MyMembership,
   MyMembershipsResult,
   PaginatedAnnouncements,
@@ -33,6 +35,7 @@ import type {
   ProcessReportInput,
   Recruitment,
   Reply,
+  StudentOverview,
   UpdateAnnouncementInput,
   UpdateEvaluationInput,
 } from '../types/club'
@@ -1639,5 +1642,65 @@ export async function generateAiDocument(
     )
   }
 
+  return data
+}
+
+// ── S19：数据概览 ────────────────────────────────────────────
+
+function isAdminOverview(value: unknown): value is AdminOverview {
+  if (typeof value !== 'object' || value === null) return false
+  const d = value as Record<string, unknown>
+  return (
+    typeof d.user_count === 'number'
+    && typeof d.normal_club_count === 'number'
+  )
+}
+
+function isLeaderOverview(value: unknown): value is LeaderOverview {
+  if (typeof value !== 'object' || value === null) return false
+  const d = value as Record<string, unknown>
+  return (
+    typeof d.active_member_count === 'number'
+    && typeof d.pending_application_count === 'number'
+    && typeof d.current_recruitment_count === 'number'
+    && typeof d.post_count === 'number'
+    && typeof d.pending_feedback_count === 'number'
+    && typeof d.pending_report_count === 'number'
+  )
+}
+
+function isStudentOverview(value: unknown): value is StudentOverview {
+  if (typeof value !== 'object' || value === null) return false
+  const d = value as Record<string, unknown>
+  return (
+    typeof d.joined_normal_club_count === 'number'
+    && Array.isArray(d.join_applications)
+  )
+}
+
+export async function getAdminOverview(): Promise<AdminOverview> {
+  const data = await request<unknown>('/api/admin/overview', { method: 'GET' })
+  if (!isAdminOverview(data)) {
+    throw new ApiRequestError('INVALID_RESPONSE', '服务器返回的管理员概览格式不正确', 200)
+  }
+  return data
+}
+
+export async function getLeaderOverview(clubId: number): Promise<LeaderOverview> {
+  const data = await request<unknown>(
+    `/api/leader/clubs/${clubId}/overview`,
+    { method: 'GET' },
+  )
+  if (!isLeaderOverview(data)) {
+    throw new ApiRequestError('INVALID_RESPONSE', '服务器返回的负责人概览格式不正确', 200)
+  }
+  return data
+}
+
+export async function getStudentOverview(): Promise<StudentOverview> {
+  const data = await request<unknown>('/api/me/overview', { method: 'GET' })
+  if (!isStudentOverview(data)) {
+    throw new ApiRequestError('INVALID_RESPONSE', '服务器返回的学生概览格式不正确', 200)
+  }
   return data
 }

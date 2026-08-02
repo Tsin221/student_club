@@ -11,6 +11,7 @@ import {
   getLeaderAnnouncements,
   getLeaderFeedbacks,
   getLeaderMembers,
+  getLeaderOverview,
   listPosts,
   pinPost,
   processFeedback,
@@ -18,7 +19,7 @@ import {
   updateAnnouncement,
   updateLeaderClub,
 } from '../api/clubs'
-import type { Announcement, Club, Feedback, MembershipForLeader, Post } from '../types/club'
+import type { Announcement, Club, Feedback, LeaderOverview, MembershipForLeader, Post } from '../types/club'
 
 
 const emit = defineEmits<{
@@ -47,6 +48,33 @@ const editRules: FormRules<typeof editForm> = {
   introduction: [
     { required: true, message: '请输入社团简介', trigger: 'blur' },
   ],
+}
+
+// ── S19：数据概览 ──────────────────────────────────────────
+
+const overview = ref<LeaderOverview | null>(null)
+const isLoadingOverview = ref(false)
+const overviewError = ref('')
+
+async function loadOverview() {
+  if (!clubId.value) return
+  isLoadingOverview.value = true
+  overviewError.value = ''
+  try {
+    overview.value = await getLeaderOverview(clubId.value)
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      if (error.code === 'NOT_CLUB_LEADER' || error.code === 'CLUB_CANCELLED') {
+        emit('navigate', '/student/memberships')
+        return
+      }
+      overviewError.value = error.message
+    } else {
+      overviewError.value = '数据概览加载失败'
+    }
+  } finally {
+    isLoadingOverview.value = false
+  }
 }
 
 // ── 成员列表 ──────────────────────────────────────────────
@@ -484,6 +512,7 @@ async function handleProcessFeedback() {
 onMounted(() => {
   loadClub().then(() => {
     if (club.value) {
+      loadOverview()
       loadMembers()
       loadAnnouncements()
       loadPosts()
@@ -534,6 +563,55 @@ onMounted(() => {
       <el-card v-if="isLoading" v-loading="isLoading" class="data-card" shadow="never" />
 
       <template v-else-if="club">
+        <!-- S19：数据概览 -->
+        <el-card
+          v-loading="isLoadingOverview"
+          class="data-card"
+          shadow="never"
+          style="margin-bottom: 20px"
+        >
+          <template #header>
+            <span style="font-weight: 600">数据概览</span>
+          </template>
+
+          <template v-if="overviewError">
+            <el-result icon="error" title="概览加载失败" :sub-title="overviewError">
+              <template #extra>
+                <el-button type="primary" size="small" @click="loadOverview">重试</el-button>
+              </template>
+            </el-result>
+          </template>
+
+          <template v-else-if="overview">
+            <div class="overview-stats-grid">
+              <div class="stat-card" @click="emit('navigate', `/leader/clubs/${clubId}/recruitments`)">
+                <div class="stat-number">{{ overview.active_member_count }}</div>
+                <div class="stat-label">在社成员</div>
+              </div>
+              <div class="stat-card" @click="emit('navigate', `/leader/clubs/${clubId}/applications`)">
+                <div class="stat-number">{{ overview.pending_application_count }}</div>
+                <div class="stat-label">待审核申请</div>
+              </div>
+              <div class="stat-card" @click="emit('navigate', `/leader/clubs/${clubId}/recruitments`)">
+                <div class="stat-number">{{ overview.current_recruitment_count }}</div>
+                <div class="stat-label">当前招新</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number">{{ overview.post_count }}</div>
+                <div class="stat-label">正常帖子</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number">{{ overview.pending_feedback_count }}</div>
+                <div class="stat-label">待处理反馈</div>
+              </div>
+              <div class="stat-card" @click="emit('navigate', `/leader/clubs/${clubId}/reports`)">
+                <div class="stat-number">{{ overview.pending_report_count }}</div>
+                <div class="stat-label">待处理举报</div>
+              </div>
+            </div>
+          </template>
+        </el-card>
+
         <!-- 编辑社团简介 -->
         <el-card class="data-card" shadow="never">
           <template #header>社团信息维护</template>
@@ -987,5 +1065,42 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* S19 数据概览卡片 */
+.overview-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  padding: 16px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  background: #fff;
+}
+
+.stat-card:hover {
+  border-color: var(--el-color-primary, #409eff);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
+}
+
+.stat-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--el-color-primary, #409eff);
+  line-height: 1.2;
+}
+
+.stat-label {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #606266;
 }
 </style>

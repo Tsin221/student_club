@@ -4,6 +4,8 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import Q
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from core.exceptions import ApiError
@@ -4126,3 +4128,105 @@ def leader_ai_documents(request, club_id):
     draft = _call_deepseek(_AI_DOC_SYSTEM_PROMPT, user_prompt)
 
     return success_response(data={"draft": draft}, message="AI 文档草稿生成成功")
+
+
+# ── S19：三类数据概览 ────────────────────────────────────────
+
+
+@require_GET
+def admin_overview(request):
+    """GET /api/admin/overview —— 管理员查看全局数据概览。"""
+    require_admin(request)
+
+    User = get_user_model()
+    user_count = User.objects.filter(platform_role=User.PlatformRole.STUDENT).count()
+    normal_club_count = Club.objects.filter(status=Club.Status.ACTIVE).count()
+
+    return success_response(
+        data={
+            "user_count": user_count,
+            "normal_club_count": normal_club_count,
+        },
+    )
+
+
+@require_GET
+def leader_overview(request, club_id):
+    """GET /api/leader/clubs/{club_id}/overview —— 负责人查看当前社团数据概览。"""
+    _user, _membership = require_leader_of_club(request, club_id)
+
+    #在社成员数
+    active_member_count = ClubMembership.objects.filter(
+        club_id=club_id,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+    ).count()
+
+    #待审核申请数
+    pending_application_count = JoinApplication.objects.filter(
+        club_id=club_id,
+        status=JoinApplication.Status.PENDING,
+    ).count()
+
+    #当前招新数（动态展示状态不是“已结束”的招新）
+    current_recruitment_count = Recruitment.objects.filter(
+        club_id=club_id,
+        ended_early=False,
+        end_time__gt=timezone.now(),
+    ).count()
+
+    #正常帖子数
+    post_count = Post.objects.filter(
+        club_id=club_id,
+        status=Post.Status.NORMAL,
+    ).count()
+
+    #待处理反馈数
+    pending_feedback_count = Feedback.objects.filter(
+        club_id=club_id,
+        status=Feedback.Status.PENDING,
+    ).count()
+
+    #待处理举报数（通过 post 或 reply 关联到当前社团）
+    pending_report_count = ContentReport.objects.filter(
+        status=ContentReport.Status.PENDING,
+    ).filter(
+        Q(post__club_id=club_id) | Q(reply__post__club_id=club_id),
+    ).count()
+
+    return success_response(
+        data={
+            "active_member_count": active_member_count,
+            "pending_application_count": pending_application_count,
+            "current_recruitment_count": current_recruitment_count,
+            "post_count": post_count,
+            "pending_feedback_count": pending_feedback_count,
+            "pending_report_count": pending_report_count,
+        },
+    )
+
+
+@require_GET
+def my_overview(request):
+    """GET /api/me/overview —— 学生查看本人数据概览。"""
+    require_active_student(request)
+
+    #当前加入正常社团数（在社 + 社团正常）
+    joined_normal_club_count = ClubMembership.objects.filter(
+        user=request.user,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+        club__status=Club.Status.ACTIVE,
+    ).count()
+
+    #本人全部入社申请（按申请时间倒序）
+    applications = JoinApplication.objects.filter(
+        applicant=request.user,
+    ).select_related("club", "recruitment").order_by("-applied_at")
+
+    return success_response(
+        data={
+            "joined_normal_club_count": joined_normal_club_count,
+            "join_applications": [
+                serialize_join_application(a) for a in applications
+            ],
+        },
+    )

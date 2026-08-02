@@ -461,3 +461,24 @@ export interface GenerateAiDocumentInput {
 export interface GenerateAiDocumentResponse {
   draft: string
 }
+
+// ── S19：数据概览 ────────────────────────────────────────────
+
+export interface AdminOverview {
+  user_count: number
+  normal_club_count: number
+}
+
+export interface LeaderOverview {
+  active_member_count: number
+  pending_application_count: number
+  current_recruitment_count: number
+  post_count: number
+  pending_feedback_count: number
+  pending_report_count: number
+}
+
+export interface StudentOverview {
+  joined_normal_club_count: number
+  join_applications: JoinApplication[]
+}

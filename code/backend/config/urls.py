@@ -225,6 +225,16 @@ urlpatterns = [
         "api/leader/clubs/<int:club_id>/ai-documents",
         club_views.leader_ai_documents,
     ),
+    # ── S19：三类数据概览 ──
+    #管理员概览
+    path("api/admin/overview", club_views.admin_overview),
+    #负责人概览
+    path(
+        "api/leader/clubs/<int:club_id>/overview",
+        club_views.leader_overview,
+    ),
+    #学生概览
+    path("api/me/overview", club_views.my_overview),
 ]
 
 #开发环境媒体文件服务

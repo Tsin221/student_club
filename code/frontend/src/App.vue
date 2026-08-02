@@ -5,6 +5,7 @@ import AdminAnnouncementsView from './views/AdminAnnouncementsView.vue'
 import AdminApplicationsView from './views/AdminApplicationsView.vue'
 import AdminClubDetailView from './views/AdminClubDetailView.vue'
 import AdminClubsView from './views/AdminClubsView.vue'
+import AdminDashboardView from './views/AdminDashboardView.vue'
 import AdminEvaluationsView from './views/AdminEvaluationsView.vue'
 import AdminMembershipsView from './views/AdminMembershipsView.vue'
 import AdminPostsView from './views/AdminPostsView.vue'
@@ -99,6 +100,8 @@ const currentView = computed(() => {
       return StudentEvaluationsView
     case '/student/feedbacks':
       return StudentFeedbacksView
+    case '/admin':
+      return AdminDashboardView
     case '/admin/users':
       return AdminUsersView
     case '/admin/clubs':
@@ -169,7 +172,7 @@ const VALID_PATHS = [
   '/login', '/register',
   '/student', '/student/profile/edit', '/student/clubs', '/student/memberships',
   '/student/applications', '/student/notifications', '/student/evaluations', '/student/feedbacks',
-  '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
+  '/admin', '/admin/users', '/admin/clubs', '/admin/memberships', '/admin/recruitments',
   '/admin/applications', '/admin/evaluations', '/admin/posts', '/admin/replies',
 ]
 
