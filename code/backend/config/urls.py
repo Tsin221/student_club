@@ -219,6 +219,12 @@ urlpatterns = [
     # ── S17：帖子 AI ──
     #成员对帖子使用 AI
     path("api/posts/<int:post_id>/ai", club_views.post_ai),
+    # ── S18：AI 文档生成 ──
+    #负责人生成 AI 文档草稿
+    path(
+        "api/leader/clubs/<int:club_id>/ai-documents",
+        club_views.leader_ai_documents,
+    ),
 ]
 
 #开发环境媒体文件服务

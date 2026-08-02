@@ -1608,3 +1608,36 @@ export async function postAi(
 
   return data
 }
+
+// ═════════════════════════════════════════════════════════════
+// S18 AI 文档生成
+// ═════════════════════════════════════════════════════════════
+
+import type { GenerateAiDocumentInput, GenerateAiDocumentResponse } from '../types/club'
+
+function isGenerateAiDocumentResponse(value: unknown): value is GenerateAiDocumentResponse {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.draft === 'string'
+}
+
+//POST /api/leader/clubs/{club_id}/ai-documents — 生成 AI 文档草稿
+export async function generateAiDocument(
+  clubId: number,
+  input: GenerateAiDocumentInput,
+): Promise<GenerateAiDocumentResponse> {
+  const data = await postJson<unknown>(
+    `/api/leader/clubs/${clubId}/ai-documents`,
+    input,
+  )
+
+  if (!isGenerateAiDocumentResponse(data)) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的 AI 文档格式不正确',
+      200,
+    )
+  }
+
+  return data
+}

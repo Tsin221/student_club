@@ -4026,3 +4026,103 @@ def post_ai(request, post_id):
         data["warning"] = "内容较长，本次回答可能未包含全部回复"
 
     return success_response(data=data, message="AI 回答生成成功")
+
+
+# ── S18：AI 文档生成 ────────────────────────────────────────────
+
+#AI 文档类型白名单
+_VALID_AI_DOC_TYPES = {"社团公告", "招新文案", "社团介绍"}
+
+#AI 文档生成系统提示
+_AI_DOC_SYSTEM_PROMPT = (
+    "你是一个高校社团文档撰写助手。请严格基于用户提供的社团信息和要求来撰写文档。"
+    "如果用户提供的信息不足以完成文档，请在草稿中用「[此处需要补充]」标记，不要编造具体信息。"
+    "生成的内容应该是可直接使用的纯文本草稿，语言正式、条理清晰。"
+    "回复使用中文，只返回文档正文，不要添加额外的解释或说明。"
+)
+
+
+def _build_document_user_prompt(club, document_type, body):
+    """构建 AI 文档生成的用户提示词。"""
+    from django.conf import settings
+
+    lines = []
+    lines.append(f"请为以下社团撰写一份{document_type}草稿。")
+    lines.append("")
+    lines.append("【社团基本信息】")
+    lines.append(f"社团名称：{club.name}")
+    lines.append(f"社团类别：{club.category}")
+    if club.introduction:
+        lines.append(f"社团简介：{club.introduction}")
+    lines.append("")
+
+    #收集用户输入的可选字段
+    has_user_input = False
+    field_labels = {
+        "title_or_topic": "标题/主题",
+        "main_content": "主要内容",
+        "audience": "面向对象",
+        "time": "时间",
+        "location": "地点",
+        "contact": "联系方式",
+        "expected_length": "期望字数",
+        "style": "文风",
+        "additional_requirements": "其他补充要求",
+    }
+
+    for field, label in field_labels.items():
+        value = (body.get(field) or "").strip()
+        if value:
+            if not has_user_input:
+                lines.append("【用户要求】")
+                has_user_input = True
+            lines.append(f"{label}：{value}")
+
+    prompt = "\n".join(lines)
+
+    #如果内容超长则截断
+    max_chars = settings.AI_MAX_CONTENT_CHARS
+    if len(prompt) > max_chars:
+        prompt = prompt[:max_chars]
+
+    return prompt
+
+
+@require_POST
+def leader_ai_documents(request, club_id):
+    """POST /api/leader/clubs/{club_id}/ai-documents —— 为社团生成 AI 文档草稿。"""
+    body = _parse_json_body(request)
+
+    #校验 document_type
+    document_type = (body.get("document_type") or "").strip()
+    if not document_type:
+        raise ApiError(
+            code="INVALID_DOCUMENT_TYPE",
+            message="请选择文档类型",
+            status=422,
+        )
+    if document_type not in _VALID_AI_DOC_TYPES:
+        raise ApiError(
+            code="INVALID_DOCUMENT_TYPE",
+            message=f"文档类型必须是以下之一：{'、'.join(sorted(_VALID_AI_DOC_TYPES))}",
+            status=422,
+        )
+
+    #校验负责人权限（该函数内部已确保俱乐部存在且状态正常）
+    user, _membership = require_leader_of_club(request, club_id)
+
+    #获取社团完整信息用于构建提示词
+    try:
+        club = Club.objects.get(id=club_id)
+    except Club.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="社团不存在",
+            status=404,
+        )
+
+    #构建提示词并调用 DeepSeek
+    user_prompt = _build_document_user_prompt(club, document_type, body)
+    draft = _call_deepseek(_AI_DOC_SYSTEM_PROMPT, user_prompt)
+
+    return success_response(data={"draft": draft}, message="AI 文档草稿生成成功")

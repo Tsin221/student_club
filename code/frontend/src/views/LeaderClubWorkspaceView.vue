@@ -880,6 +880,24 @@ onMounted(() => {
           </div>
         </el-card>
 
+        <!-- S18 AI 文档生成入口 -->
+        <el-card style="margin-top: 16px">
+          <template #header>
+            <span style="font-weight: 600">AI 文档生成</span>
+          </template>
+          <div style="text-align: center; padding: 12px 0">
+            <p style="color: #606266; margin: 0 0 12px 0; font-size: 14px">
+              使用 AI 为当前社团生成公告、招新文案或社团介绍草稿
+            </p>
+            <el-button
+              type="primary"
+              @click="emit('navigate', `/leader/clubs/${clubId}/ai-documents`)"
+            >
+              生成文档
+            </el-button>
+          </div>
+        </el-card>
+
         <!-- 处理反馈弹窗 -->
         <el-dialog
           v-model="showProcessDialog"

@@ -438,3 +438,26 @@ export interface PostAiResponse {
   truncated: boolean
   warning?: string
 }
+
+// ── S18：AI 文档生成 ──────────────────────────────────────────────────
+
+export type AiDocumentType = '社团公告' | '招新文案' | '社团介绍'
+
+export const AI_DOCUMENT_TYPES: AiDocumentType[] = ['社团公告', '招新文案', '社团介绍']
+
+export interface GenerateAiDocumentInput {
+  document_type: AiDocumentType
+  title_or_topic?: string
+  main_content?: string
+  audience?: string
+  time?: string
+  location?: string
+  contact?: string
+  expected_length?: string
+  style?: string
+  additional_requirements?: string
+}
+
+export interface GenerateAiDocumentResponse {
+  draft: string
+}
