@@ -22,6 +22,11 @@ urlpatterns = [
         "api/admin/users/<int:user_id>/reset-password",
         user_views.admin_reset_password,
     ),
+    #管理员停用/恢复学生账号（S20）
+    path(
+        "api/admin/users/<int:user_id>/status",
+        user_views.admin_update_user_status,
+    ),
     #管理员社团管理
     path("api/admin/clubs", club_views.admin_clubs),
     path("api/admin/clubs/<int:club_id>", club_views.admin_club_detail),

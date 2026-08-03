@@ -464,3 +464,107 @@ def admin_reset_password(request, user_id):
         data={"user_id": target_user.id},
         message="密码重置成功",
     )
+
+
+# ── S20：管理员停用/恢复学生账号 ────────────────────────────────
+
+#允许的目标状态值
+ALLOWED_ACCOUNT_STATUSES = {"active", "disabled"}
+
+
+#统计目标学生作为有效负责人的正常社团数量（排除该学生本人后）。
+def _count_other_effective_leaders(club, exclude_user):
+    """返回 club 中除 exclude_user 外的有效负责人数量。"""
+    from clubs.models import ClubMembership
+
+    user_model = get_user_model()
+    return ClubMembership.objects.filter(
+        club=club,
+        member_status=ClubMembership.MemberStatus.ACTIVE,
+        club_role=ClubMembership.ClubRole.LEADER,
+        user__account_status=user_model.AccountStatus.ACTIVE,
+    ).exclude(user=exclude_user).count()
+
+
+#PATCH /api/admin/users/{user_id}/status — 管理员停用或恢复学生账号。
+def admin_update_user_status(request, user_id):
+    if request.method != "PATCH":
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="不支持的请求方法",
+            status=405,
+        )
+    require_admin(request)
+    user_model = get_user_model()
+
+    # 查找目标用户
+    try:
+        target_user = user_model.objects.get(id=user_id)
+    except user_model.DoesNotExist:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="用户不存在",
+            status=404,
+        )
+
+    # 只能操作学生账号
+    if target_user.platform_role != user_model.PlatformRole.STUDENT:
+        raise ApiError(
+            code="NOT_STUDENT_USER",
+            message="只能操作学生账号",
+            status=422,
+        )
+
+    # 解析请求体，严格校验字段
+    payload = _safe_parse_body(request)
+    if not isinstance(payload, dict) or set(payload) != {"account_status"}:
+        raise ApiError(
+            code="INVALID_REQUEST",
+            message="请求字段缺失或包含不允许的字段",
+            status=400,
+        )
+
+    new_status = payload["account_status"]
+    if not isinstance(new_status, str) or new_status not in ALLOWED_ACCOUNT_STATUSES:
+        raise ApiError(
+            code="VALIDATION_ERROR",
+            message="account_status 必须为 active 或 disabled",
+            status=422,
+        )
+
+    # 未实际变更时直接返回成功
+    if target_user.account_status == new_status:
+        return success_response(
+            data={"user_id": target_user.id, "account_status": target_user.account_status},
+            message="账号状态未变更",
+        )
+
+    # 停用前检查最后有效负责人保护
+    if new_status == user_model.AccountStatus.DISABLED:
+        from clubs.models import Club, ClubMembership
+
+        # 查询该学生作为有效负责人的所有正常社团
+        leader_memberships = ClubMembership.objects.filter(
+            user=target_user,
+            member_status=ClubMembership.MemberStatus.ACTIVE,
+            club_role=ClubMembership.ClubRole.LEADER,
+            club__status=Club.Status.ACTIVE,
+        ).select_related("club")
+
+        for membership in leader_memberships:
+            if _count_other_effective_leaders(membership.club, target_user) == 0:
+                raise ApiError(
+                    code="LAST_EFFECTIVE_LEADER",
+                    message=f"不能停用该学生：社团「{membership.club.name}」将失去最后一名有效负责人",
+                    status=409,
+                )
+
+    # 执行状态变更
+    target_user.account_status = new_status
+    target_user.save(update_fields=["account_status"])
+
+    action_label = "已停用" if new_status == user_model.AccountStatus.DISABLED else "已恢复"
+    return success_response(
+        data={"user_id": target_user.id, "account_status": target_user.account_status},
+        message=f"学生账号{action_label}",
+    )
