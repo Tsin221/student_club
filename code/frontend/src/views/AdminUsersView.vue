@@ -11,6 +11,7 @@ import {
   ApiRequestError,
   getAdminUsers,
   resetPassword,
+  updateUserStatus,
 } from '../api/auth'
 import type { SelfUser } from '../types/user'
 
@@ -125,6 +126,49 @@ async function submitReset() {
     )
   } finally {
     isResetting.value = false
+  }
+}
+
+
+// ── 停用/恢复 ──────────────────────────────────────────────
+
+async function toggleUserStatus(user: SelfUser) {
+  const isDisabling = user.account_status === 'active'
+  const actionLabel = isDisabling ? '停用' : '恢复'
+
+  try {
+    await ElMessageBox.confirm(
+      isDisabling
+        ? `确认停用学生「${user.name}」（${user.username}）？停用后该账号将无法登录，已有会话也会被拒绝。`
+        : `确认恢复学生「${user.name}」（${user.username}）？恢复后该账号可以重新登录。`,
+      `${actionLabel}账号`,
+      {
+        confirmButtonText: actionLabel,
+        cancelButtonText: '取消',
+        type: isDisabling ? 'warning' : 'info',
+      },
+    )
+  } catch {
+    // 用户取消
+    return
+  }
+
+  try {
+    await updateUserStatus(user.id, {
+      account_status: isDisabling ? 'disabled' : 'active',
+    })
+    ElMessage.success(`已${actionLabel}学生「${user.name}」`)
+    await loadUsers()
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiRequestError
+        ? error.message
+        : `${actionLabel}失败，请稍后重试`,
+    )
+    // LAST_EFFECTIVE_LEADER 时仍然刷新列表以获取最新状态
+    if (error instanceof ApiRequestError) {
+      await loadUsers()
+    }
   }
 }
 
@@ -269,7 +313,7 @@ onMounted(() => {
                 {{ formatDate(row.registered_at) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button
                   type="primary"
@@ -278,6 +322,24 @@ onMounted(() => {
                   @click="openResetDialog(row as SelfUser)"
                 >
                   重置密码
+                </el-button>
+                <el-button
+                  v-if="(row as SelfUser).account_status === 'active'"
+                  type="danger"
+                  link
+                  size="small"
+                  @click="toggleUserStatus(row as SelfUser)"
+                >
+                  停用
+                </el-button>
+                <el-button
+                  v-else
+                  type="success"
+                  link
+                  size="small"
+                  @click="toggleUserStatus(row as SelfUser)"
+                >
+                  恢复
                 </el-button>
               </template>
             </el-table-column>

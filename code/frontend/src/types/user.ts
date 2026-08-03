@@ -51,3 +51,14 @@ export interface ResetPasswordInput {
 export interface ResetPasswordResult {
   user_id: number
 }
+
+
+export interface UpdateUserStatusInput {
+  account_status: 'active' | 'disabled'
+}
+
+
+export interface UpdateUserStatusResult {
+  user_id: number
+  account_status: 'active' | 'disabled'
+}

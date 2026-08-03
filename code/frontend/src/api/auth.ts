@@ -5,6 +5,8 @@ import type {
   RegistrationInput,
   ResetPasswordResult,
   SelfUser,
+  UpdateUserStatusInput,
+  UpdateUserStatusResult,
 } from '../types/user'
 import {
   isSuccessResponse,
@@ -241,4 +243,30 @@ export async function resetPassword(
   }
 
   return data as ResetPasswordResult
+}
+
+
+export async function updateUserStatus(
+  userId: number,
+  input: UpdateUserStatusInput,
+): Promise<UpdateUserStatusResult> {
+  const data = await patchJson<unknown>(
+    `/api/admin/users/${userId}/status`,
+    { account_status: input.account_status },
+  )
+
+  if (
+    typeof data !== 'object'
+    || data === null
+    || typeof (data as Record<string, unknown>).user_id !== 'number'
+    || typeof (data as Record<string, unknown>).account_status !== 'string'
+  ) {
+    throw new ApiRequestError(
+      'INVALID_RESPONSE',
+      '服务器返回的账号状态更新结果格式不正确',
+      200,
+    )
+  }
+
+  return data as UpdateUserStatusResult
 }
